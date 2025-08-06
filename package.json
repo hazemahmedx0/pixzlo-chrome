@@ -36,7 +36,8 @@
   },
   "manifest": {
     "host_permissions": [
-      "https://*/*"
+      "https://*/*",
+      "http://localhost:3000/*"
     ]
   }
 }
