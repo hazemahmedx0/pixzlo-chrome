@@ -1,13 +1,22 @@
-import { LoginForm } from "@/components/login-form"
-
 import "globals.css"
 
+import { LoginButton } from "@/components/popup/login-button"
+import { LoadingView } from "@/components/popup/loading"
+import { ProfileInfo } from "@/components/popup/profile-info"
+import { useProfile } from "@/hooks/use-profile"
+
 const IndexPopup = () => {
-  return (
-    <div className="flex h-[25rem] w-[25rem] flex-col">
-      <LoginForm />
-    </div>
-  )
+  const { profile, status } = useProfile()
+
+  if (status === "loading") {
+    return <LoadingView />
+  }
+
+  if (status === "authenticated" && profile) {
+    return <ProfileInfo profile={profile} />
+  }
+
+  return <LoginButton />
 }
 
 export default IndexPopup
