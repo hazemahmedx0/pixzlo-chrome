@@ -1,59 +1,22 @@
-import { useEffect, useState } from "react"
-
-import { Button } from "@/components/ui/button"
-
 import "globals.css"
 
-type Profile = {
-  email?: string
-}
+import { LoginButton } from "@/components/popup/login-button"
+import { LoadingView } from "@/components/popup/loading"
+import { ProfileInfo } from "@/components/popup/profile-info"
+import { useProfile } from "@/hooks/use-profile"
 
 const IndexPopup = () => {
-  const [status, setStatus] = useState<"loading" | "authenticated" | "unauthenticated">("loading")
-  const [profile, setProfile] = useState<Profile | null>(null)
-
-  useEffect(() => {
-    const fetchProfile = async () => {
-      try {
-        const res = await fetch("http://localhost:3000/api/user/profile", {
-          credentials: "include"
-        })
-        if (res.ok) {
-          const data = await res.json()
-          setProfile(data.profile)
-          setStatus("authenticated")
-        } else {
-          setStatus("unauthenticated")
-        }
-      } catch (e) {
-        setStatus("unauthenticated")
-      }
-    }
-
-    fetchProfile()
-  }, [])
+  const { profile, status } = useProfile()
 
   if (status === "loading") {
-    return (
-      <div className="flex h-[25rem] w-[25rem] items-center justify-center">
-        Checking authentication...
-      </div>
-    )
+    return <LoadingView />
   }
 
-  if (status === "authenticated") {
-    return (
-      <div className="flex h-[25rem] w-[25rem] flex-col items-center justify-center gap-2">
-        <span className="text-center">Logged in as {profile?.email ?? "user"}</span>
-      </div>
-    )
+  if (status === "authenticated" && profile) {
+    return <ProfileInfo profile={profile} />
   }
 
-  return (
-    <div className="flex h-[25rem] w-[25rem] items-center justify-center">
-      <Button onClick={() => window.open("http://localhost:3000/login", "_blank")}>Login</Button>
-    </div>
-  )
+  return <LoginButton />
 }
 
 export default IndexPopup
