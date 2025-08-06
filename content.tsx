@@ -1,7 +1,6 @@
 import cssText from "data-text:~globals.css"
 import type { PlasmoCSConfig } from "plasmo"
-
-import { LoginForm } from "~components/login-form"
+import { useEffect, useState } from "react"
 
 export const config: PlasmoCSConfig = {
   matches: ["<all_urls>"]
@@ -37,12 +36,33 @@ export const getStyle = (): HTMLStyleElement => {
   return styleElement
 }
 
-const CSUIExample = () => {
+const SelectionOverlay = () => {
+  const [active, setActive] = useState(false)
+
+  useEffect(() => {
+    const listener = (message: { type?: string }) => {
+      if (message.type === "start-element-selection") {
+        setActive(true)
+      }
+    }
+
+    chrome.runtime.onMessage.addListener(listener)
+    return () => {
+      chrome.runtime.onMessage.removeListener(listener)
+    }
+  }, [])
+
+  if (!active) {
+    return null
+  }
+
   return (
-    <div className="flex w-[400px] flex-col border-2 bg-yellow-50">
-      <LoginForm />
+    <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center">
+      <div className="pointer-events-auto rounded bg-black/80 p-4 text-white">
+        Element selection active
+      </div>
     </div>
   )
 }
 
-export default CSUIExample
+export default SelectionOverlay
