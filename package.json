@@ -39,6 +39,6 @@
       "https://*/*",
       "http://localhost:3000/*"
     ],
-    "permissions": ["tabs"]
+    "permissions": ["tabs", "activeTab"]
   }
 }
