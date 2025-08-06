@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { computeCaptureRect, cropImage } from '@/lib/capture'
+import ScreenshotDialog from '@/components/content/screenshot-dialog'
 
 const ElementSelector = () => {
   const [active, setActive] = useState(false)
   const overlayRef = useRef<HTMLDivElement>(null)
   const highlightRef = useRef<HTMLDivElement>(null)
   const currentRect = useRef<DOMRect | null>(null)
+  const [preview, setPreview] = useState<string | null>(null)
 
   useEffect(() => {
     const listener = (message: { type?: string }) => {
@@ -53,7 +55,7 @@ const ElementSelector = () => {
       chrome.runtime.sendMessage({ type: 'capture-screen' }, async (res) => {
         if (res?.dataUrl) {
           const url = await cropImage(res.dataUrl, captureRect)
-          window.open(url)
+          setPreview(url)
         }
       })
       endSelection()
@@ -78,16 +80,21 @@ const ElementSelector = () => {
     }
   }, [active])
 
-  if (!active) return null
+  if (!active && !preview) return null
 
   return (
-    <div ref={overlayRef} className="fixed inset-0 z-[2147483647] cursor-crosshair">
-      <div
-        ref={highlightRef}
-        className="pointer-events-none absolute border-2 border-blue-500 bg-blue-500/20"
-        style={{ display: 'none' }}
-      />
-    </div>
+    <>
+      {active && (
+        <div ref={overlayRef} className="fixed inset-0 z-[2147483647] cursor-crosshair">
+          <div
+            ref={highlightRef}
+            className="pointer-events-none absolute border-2 border-blue-500 bg-blue-500/20"
+            style={{ display: 'none' }}
+          />
+        </div>
+      )}
+      {preview && <ScreenshotDialog src={preview} onClose={() => setPreview(null)} />}
+    </>
   )
 }
 
