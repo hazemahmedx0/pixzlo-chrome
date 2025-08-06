@@ -1,6 +1,6 @@
 import cssText from "data-text:~globals.css"
 import type { PlasmoCSConfig } from "plasmo"
-import { useEffect, useState } from "react"
+import ElementSelector from "@/components/content/element-selector"
 
 export const config: PlasmoCSConfig = {
   matches: ["<all_urls>"]
@@ -36,33 +36,4 @@ export const getStyle = (): HTMLStyleElement => {
   return styleElement
 }
 
-const SelectionOverlay = () => {
-  const [active, setActive] = useState(false)
-
-  useEffect(() => {
-    const listener = (message: { type?: string }) => {
-      if (message.type === "start-element-selection") {
-        setActive(true)
-      }
-    }
-
-    chrome.runtime.onMessage.addListener(listener)
-    return () => {
-      chrome.runtime.onMessage.removeListener(listener)
-    }
-  }, [])
-
-  if (!active) {
-    return null
-  }
-
-  return (
-    <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center">
-      <div className="pointer-events-auto rounded bg-black/80 p-4 text-white">
-        Element selection active
-      </div>
-    </div>
-  )
-}
-
-export default SelectionOverlay
+export default ElementSelector
