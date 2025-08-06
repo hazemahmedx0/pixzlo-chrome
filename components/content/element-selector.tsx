@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { computeCaptureRect, cropImage } from '@/lib/capture'
+import { computeFrame, cropImage } from '@/lib/capture'
 import ScreenshotDialog from '@/components/content/screenshot-dialog'
+import type { ScreenshotPair } from '@/types/capture'
 
 const ElementSelector = () => {
   const [active, setActive] = useState(false)
   const overlayRef = useRef<HTMLDivElement>(null)
   const highlightRef = useRef<HTMLDivElement>(null)
   const currentRect = useRef<DOMRect | null>(null)
-  const [preview, setPreview] = useState<string | null>(null)
+  const [preview, setPreview] = useState<ScreenshotPair | null>(null)
 
   useEffect(() => {
     const listener = (message: { type?: string }) => {
@@ -51,13 +52,22 @@ const ElementSelector = () => {
       e.stopPropagation()
       const rect = currentRect.current
       if (!rect) return
-      const captureRect = computeCaptureRect(rect)
-      chrome.runtime.sendMessage({ type: 'capture-screen' }, async (res) => {
-        if (res?.dataUrl) {
-          const url = await cropImage(res.dataUrl, captureRect)
-          setPreview(url)
-        }
-      })
+      const frame = computeFrame(rect)
+
+      const capture = () =>
+        new Promise<string>((resolve) =>
+          chrome.runtime.sendMessage({ type: 'capture-screen' }, (res) =>
+            resolve(res?.dataUrl ?? '')
+          )
+        )
+
+      const highlightedUrl = await cropImage(await capture(), frame)
+      const highlight = highlightRef.current!
+      highlight.style.display = 'none'
+      await new Promise((r) => requestAnimationFrame(() => r(null)))
+      const plainUrl = await cropImage(await capture(), frame)
+
+      setPreview({ highlighted: highlightedUrl, plain: plainUrl })
       endSelection()
     }
 
@@ -93,7 +103,7 @@ const ElementSelector = () => {
           />
         </div>
       )}
-      {preview && <ScreenshotDialog src={preview} onClose={() => setPreview(null)} />}
+      {preview && <ScreenshotDialog images={preview} onClose={() => setPreview(null)} />}
     </>
   )
 }

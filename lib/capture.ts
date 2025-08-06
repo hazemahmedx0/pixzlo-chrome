@@ -1,11 +1,9 @@
-export const PADDING = 40
+import type { CaptureFrame } from '@/types/capture'
+import { PADDING, MIN_WIDTH, MIN_HEIGHT } from '@/lib/constants'
+import type { Rect } from '@/types/selection'
 
-import type { Rect } from "@/types/selection"
-
-export const computeCaptureRect = (
-  rect: DOMRect
-): Rect => {
-  const padded = {
+export const computeFrame = (rect: DOMRect): CaptureFrame => {
+  const content: Rect = {
     left: rect.left - PADDING,
     top: rect.top - PADDING,
     width: rect.width + PADDING * 2,
@@ -13,23 +11,37 @@ export const computeCaptureRect = (
   }
 
   const aspect = 16 / 9
-  let width = Math.max(padded.width, padded.height * aspect)
+  let width = Math.max(content.width, content.height * aspect)
   let height = width / aspect
-  if (height < padded.height) {
-    height = padded.height
+  if (height < content.height) {
+    height = content.height
     width = height * aspect
   }
 
-  const centerX = padded.left + padded.width / 2
-  const centerY = padded.top + padded.height / 2
-  const left = centerX - width / 2
-  const top = centerY - height / 2
-  return { left, top, width, height }
+  if (width < MIN_WIDTH) {
+    width = MIN_WIDTH
+    height = width / aspect
+  }
+  if (height < MIN_HEIGHT) {
+    height = MIN_HEIGHT
+    width = height * aspect
+  }
+
+  const centerX = content.left + content.width / 2
+  const centerY = content.top + content.height / 2
+  const frame: Rect = {
+    left: centerX - width / 2,
+    top: centerY - height / 2,
+    width,
+    height
+  }
+
+  return { frame, content }
 }
 
 export const cropImage = async (
   dataUrl: string,
-  rect: Rect
+  { frame, content }: CaptureFrame
 ): Promise<string> => {
   const img = new Image()
   img.src = dataUrl
@@ -37,32 +49,29 @@ export const cropImage = async (
 
   const dpr = window.devicePixelRatio
   const canvas = document.createElement('canvas')
-  canvas.width = rect.width * dpr
-  canvas.height = rect.height * dpr
+  canvas.width = frame.width * dpr
+  canvas.height = frame.height * dpr
   const ctx = canvas.getContext('2d')!
   ctx.fillStyle = '#808080'
   ctx.fillRect(0, 0, canvas.width, canvas.height)
 
   const viewportWidth = window.innerWidth
   const viewportHeight = window.innerHeight
-  const sx = Math.max(rect.left, 0) * dpr
-  const sy = Math.max(rect.top, 0) * dpr
+  const sx = Math.max(content.left, 0) * dpr
+  const sy = Math.max(content.top, 0) * dpr
   const sWidth =
-    Math.min(viewportWidth - rect.left, rect.width) * dpr - Math.max(0, -rect.left) * dpr
+    (Math.min(viewportWidth, content.left + content.width) -
+      Math.max(content.left, 0)) *
+    dpr
   const sHeight =
-    Math.min(viewportHeight - rect.top, rect.height) * dpr - Math.max(0, -rect.top) * dpr
+    (Math.min(viewportHeight, content.top + content.height) -
+      Math.max(content.top, 0)) *
+    dpr
 
-  ctx.drawImage(
-    img,
-    sx,
-    sy,
-    sWidth,
-    sHeight,
-    (Math.max(0, rect.left) - rect.left) * dpr,
-    (Math.max(0, rect.top) - rect.top) * dpr,
-    sWidth,
-    sHeight
-  )
+  const dx = (Math.max(content.left, 0) - frame.left) * dpr
+  const dy = (Math.max(content.top, 0) - frame.top) * dpr
+
+  ctx.drawImage(img, sx, sy, sWidth, sHeight, dx, dy, sWidth, sHeight)
 
   return canvas.toDataURL('image/png')
 }

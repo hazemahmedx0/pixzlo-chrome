@@ -8,6 +8,7 @@ export const SelectElementButton = () => {
         chrome.tabs.sendMessage(tabId, { type: "start-element-selection" })
       }
     })
+    window.close()
   }
 
   return <Button onClick={handleSelect}>Select element</Button>
