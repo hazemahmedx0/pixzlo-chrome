@@ -1,0 +1,260 @@
+---
+alwaysApply: true
+---
+
+## Guidelines
+
+- **TypeScript Strict Mode**: Always enable `"strict": true` in `tsconfig.json`.
+- **Avoid `any` Type**: Never use `any` for variable, parameter, or return types. Define explicit interfaces or types instead.
+- **ESLint Configuration**: Use strict ESLint rules aligned with TypeScript best practices (e.g., `@typescript-eslint` plugin).
+- **Explicit Type Definitions**: Define TypeScript interfaces or types for all props, state, and API responses.
+- **No Implicit Returns**: Avoid implicit `any` returns by specifying return types for all functions.
+- **No Type Assertions**: Minimize non-null assertions (`!`) and type assertions (`as`). Use type guards or conditional checks instead.
+- **Consistent Naming**: Use PascalCase for interfaces/types, camelCase for variables/functions.
+- **Lint and Format**: Run ESLint and Prettier before commits to enforce consistent code style.
+
+---
+
+## Example Configurations
+
+### tsconfig.json
+
+```json
+{
+  "compilerOptions": {
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "strictBindCallApply": true,
+    "noImplicitThis": true,
+    "alwaysStrict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
+  }
+}
+```
+
+### .eslintrc.json
+
+```json
+{
+  "env": { "browser": true, "es2021": true, "node": true },
+  "extends": [
+    "eslint:recommended",
+    "plugin:@typescript-eslint/recommended",
+    "plugin:@typescript-eslint/recommended-requiring-type-checking",
+    "plugin:react/recommended",
+    "plugin:react-hooks/recommended",
+    "plugin:prettier/recommended"
+  ],
+  "parser": "@typescript-eslint/parser",
+  "parserOptions": {
+    "ecmaVersion": 12,
+    "sourceType": "module",
+    "project": "./tsconfig.json"
+  },
+  "plugins": ["@typescript-eslint", "react", "react-hooks", "prettier"],
+  "rules": {
+    "@typescript-eslint/no-explicit-any": "error",
+    "@typescript-eslint/explicit-function-return-type": "error",
+    "@typescript-eslint/no-unused-vars": [
+      "error",
+      { "argsIgnorePattern": "^_" }
+    ],
+    "@typescript-eslint/consistent-type-definitions": ["error", "interface"],
+    "react/prop-types": "off",
+    "prettier/prettier": "error"
+  }
+}
+```
+
+---
+
+## Example: Correct TypeScript Component
+
+**Incorrect** (Using `any`):
+
+```typescript
+function UserProfile(props: any) {
+  return <div>{props.name}</div>;
+}
+```
+
+**Correct**:
+
+```typescript
+interface UserProfileProps {
+  name: string;
+  age?: number;
+}
+
+function UserProfile({ name, age }: UserProfileProps): JSX.Element {
+  return <div>{name} {age ?? 'N/A'}</div>;
+}
+```
+
+---
+
+## Example: Type-Safe API Route
+
+**Incorrect** (No types, implicit returns):
+
+```typescript
+export async function GET(request) {
+  const { id } = request.params // Implicit any
+  const { data } = await supabase.from('users').select('*').eq('id', id)
+  return data
+}
+```
+
+**Correct**:
+
+```typescript
+import { NextRequest, NextResponse } from 'next/server'
+
+import { z } from 'zod'
+
+import { supabase } from '@/lib/db'
+
+const paramsSchema = z.object({ id: z.string() })
+
+interface User {
+  id: string
+  name: string
+  email: string
+}
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { id: string } },
+): Promise<NextResponse<User | { error: string }>> {
+  const { id } = paramsSchema.parse(params)
+  const { data, error } = await supabase
+    .from('users')
+    .select('*')
+    .eq('id', id)
+    .single()
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json(data)
+}
+```
+
+---
+
+## Best Practices
+
+- **Use Interfaces for Props**: Define props with `interface` for components and hooks.
+- **Type API Responses**: Use Zod to infer types for API responses and share them across client and server.
+- **Type Guards for Conditionals**: Use type guards instead of `as` for safe type narrowing.
+  ```typescript
+  function isUser(data: unknown): data is User {
+    return (
+      typeof data === 'object' &&
+      data !== null &&
+      'id' in data &&
+      'name' in data
+    )
+  }
+  ```
+- **Run Linters**: Use `npm run lint` or `yarn lint` to catch issues before commits.
+- **Document Complex Types**: Add JSDoc comments for complex interfaces or functions.
+
+---
+
+## Validation Checklist
+
+- [ ] No `any` types used in code.
+- [ ] All functions have explicit return types.
+- [ ] ESLint rules are enforced via `.eslintrc.json`.
+- [ ] TypeScript strict mode is enabled in `tsconfig.json`.
+- [ ] Props and state are typed with interfaces.
+- [ ] No non-null assertions (`!`) unless absolutely necessary.
+- [ ] Prettier is used for consistent formatting.
+
+---
+
+**Referenced File**: See `@typescript-component-template.tsx` for a sample component with strict typing.
+
+---
+
+**Referenced File Content** (for `@typescript-component-template.tsx`):
+
+```typescript
+import { FC } from 'react';
+import { useQuery } from '@tanstack/react-query';
+
+interface User {
+  id: string;
+  name: string;
+}
+
+interface UserCardProps {
+  userId: string;
+  onClick?: (user: User) => void;
+}
+
+export const UserCard: FC<UserCardProps> = ({ userId, onClick }): JSX.Element => {
+  const { data, error, isLoading } = useQuery<User, Error>({
+    queryKey: ['user', userId],
+    queryFn: async () => {
+      const res = await fetch(`/api/users/${userId}`);
+      if (!res.ok) throw new Error('Failed to fetch user');
+      return res.json();
+    },
+    enabled: !!userId,
+  });
+
+  if (isLoading) return <div>Loading...</div>;
+  if (error) return <div>Error: {error.message}</div>;
+
+  return (
+    <div className="p-4 bg-white rounded shadow">
+      <h2>{data?.name}</h2>
+      <button onClick={() => onClick?.(data!)} className="bg-blue-500 text-white p-2 rounded">
+        Click
+      </button>
+    </div>
+  );
+};
+```
+
+Referenced File Content (for @typescript-component-template.tsx):
+import { FC } from 'react';
+import { useQuery } from '@tanstack/react-query';
+
+interface User {
+id: string;
+name: string;
+}
+
+interface UserCardProps {
+userId: string;
+onClick?: (user: User) => void;
+}
+
+export const UserCard: FC<UserCardProps> = ({ userId, onClick }): JSX.Element => {
+const { data, error, isLoading } = useQuery<User, Error>({
+queryKey: ['user', userId],
+queryFn: async () => {
+const res = await fetch(`/api/users/${userId}`);
+if (!res.ok) throw new Error('Failed to fetch user');
+return res.json();
+},
+enabled: !!userId,
+});
+
+if (isLoading) return <div>Loading...</div>;
+if (error) return <div>Error: {error.message}</div>;
+
+return (
+<div className="p-4 bg-white rounded shadow">
+<h2>{data?.name}</h2>
+<button onClick={() => onClick?.(data!)} className="bg-blue-500 text-white p-2 rounded">
+Click
+</button>
+</div>
+);
+};
+
+---

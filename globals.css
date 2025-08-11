@@ -40,3 +40,15 @@
   all: initial;
   box-sizing: border-box;
 }
+
+/* Hide Plasmo CSUI by default, only show when extension is active */
+plasmo-csui {
+  display: none !important;
+  visibility: hidden !important;
+}
+
+/* Show Plasmo CSUI when active */
+plasmo-csui[data-active="true"] {
+  display: block !important;
+  visibility: visible !important;
+}

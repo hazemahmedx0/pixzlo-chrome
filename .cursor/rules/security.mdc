@@ -1,0 +1,153 @@
+---
+alwaysApply: true
+---
+
+# Security Best Practices
+
+- **Never expose Supabase client on the frontend.** All database operations must go through Next.js API routes.
+- **Validate all inputs with Zod on the server side.** Client-side validation is insufficient alone.
+- **Implement authentication and authorization in API routes.** Verify user permissions using middleware or manual checks.
+- **Sanitize user inputs to prevent XSS.** Use libraries like DOMPurify if needed.
+- **Use HTTPS in production** to secure data in transit.
+- **Avoid logging sensitive data** (e.g., passwords, API keys).
+- **Apply rate limiting** to protect API endpoints from abuse.
+- **Use parameterized queries or ORM methods** to prevent SQL injection.
+
+# Architecture Overview
+
+- **Framework**: Next.js 14+ with App Router
+- **Database**: Supabase (server-side only)
+- **API Layer**: Next.js API routes with Zod for type-safe validation
+- **Forms**: React Hook Form with Zod validation
+- **Data Fetching**: TanStack Query (React Query)
+- **UI**: shadcn/ui with Tailwind CSS
+- **Validation**: Zod for all data validation
+- **TypeScript**: Strict mode enabled
+
+**Data Flow**: Client → Next.js API Route → Supabase
+
+# Component Design Standards
+
+- **Single Responsibility**: Each component should have one clear purpose.
+- **Composition**: Build complex UIs using composition, not inheritance.
+- **Props Typing**: Define TypeScript interfaces for all props.
+- **Separation**: Keep logic, presentation, and data layers distinct.
+
+**Example**: See `@component-template.tsx` for a sample component.
+
+# Form Handling Guidelines
+
+- Use **React Hook Form** for form management.
+- Validate inputs with **Zod schemas**.
+- Ensure accessibility (e.g., labels, error messages).
+
+**Example**:
+
+````typescript
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
+
+const formSchema = z.object({
+  email: z.string().email(),
+  name: z.string().min(2),
+});
+
+type FormData = z.infer<typeof formSchema>;
+
+export function UserForm() {
+  const { register, handleSubmit } = useForm<FormData>({
+    resolver: zodResolver(formSchema),
+  });
+
+  const onSubmit = (data: FormData) => {
+    // Submit to API route
+  };
+
+  return (
+    <form onSubmit={handleSubmit(onSubmit)}>
+      <input {...register('email')} type="email" />
+      <input {...register('name')} />
+      <button type="submit">Submit</button>
+    </form>
+  );
+}
+
+
+---
+
+## Rule 5: Data Fetching Standards
+
+**File**: `data-fetching.mdc`
+**Type**: `Agent Requested`
+**Description**: Best practices for data fetching with React Query and API routes.
+
+**Content**:
+```mdc
+# Data Fetching Standards
+
+- Use **React Query** for data fetching, caching, and synchronization.
+- Define **Next.js API routes** in `/app/api/` for server logic.
+- Validate inputs and outputs with **Zod**.
+
+**Example**:
+- **API Route** (`/app/api/users/[id]/route.ts`):
+```typescript
+import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
+import { supabase } from '@/lib/db';
+
+const paramsSchema = z.object({ id: z.string() });
+
+export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+  const { id } = paramsSchema.parse(params);
+  const { data, error } = await supabase.from('users').select('*').eq('id', id).single();
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json(data);
+}
+````
+
+---
+
+## Rule 6: Error Handling Guidelines
+
+**File**: `error-handling.mdc`  
+**Type**: `Agent Requested`  
+**Description**: Strategies for error handling in API routes and client-side code.
+
+**Content**:
+
+````mdc
+# Error Handling Guidelines
+
+- In **API routes**, return meaningful status codes and error messages.
+- On the **client**, use React Query's error handling features.
+
+**Example**:
+- **API Route**:
+```typescript
+if (error) {
+  return NextResponse.json({ error: error.message }, { status: 500 });
+}
+````
+
+---
+
+## Rule 7: New API Route Workflow
+
+**File**: `new-api-route.mdc`  
+**Type**: `Manual`  
+**Description**: Template and steps for creating a new API route.
+
+**Content**:
+
+```mdc
+# New API Route Workflow
+
+1. Create the route in `/app/api/`.
+2. Validate inputs with Zod.
+3. Add authentication checks if required.
+4. Handle errors with proper status codes.
+
+**Template**: See `@api-route-template.ts`.
+```
