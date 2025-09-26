@@ -1,3 +1,4 @@
+import { Toaster } from "@/components/ui/sonner"
 import { CaptureService } from "@/lib/capture-service"
 import { ElementSelectionService } from "@/lib/element-selection-service"
 import type { CaptureType, Screenshot } from "@/types/capture"
@@ -8,7 +9,7 @@ import FloatingToolbar from "./floating-toolbar"
 import PixzloDialog from "./pixzlo-dialog"
 import SelectionOverlay from "./selection-overlay"
 
-type CaptureMode = "element" | "area" | "fullscreen" | null
+type CaptureMode = "pointer" | "element" | "area" | "fullscreen" | null
 
 interface EnhancedElementSelectorProps {
   initialMode?: CaptureMode
@@ -124,13 +125,16 @@ const EnhancedElementSelector = memo(
         width: number
         height: number
       }) => {
+        console.log("🎯 handleAreaSelect called with area:", area)
         try {
+          console.log("📸 Calling captureService.captureArea with:", area)
           const screenshot = await captureService.captureArea(area, {
             type: "area",
             includeMetadata: true,
             preserveOriginalAspect: true
           })
 
+          console.log("✅ Screenshot captured successfully:", screenshot)
           setScreenshots([screenshot])
           setShowDialog(true)
           setIsActive(false)
@@ -224,8 +228,9 @@ const EnhancedElementSelector = memo(
     }, [captureMode, handleFullScreenCapture])
 
     const handleModeChange = useCallback(
-      (mode: CaptureMode) => {
+      (mode: "pointer" | "element" | "area" | "fullscreen") => {
         setCaptureMode(mode)
+        console.log(`🔄 Mode changed to: ${mode}`)
         if (mode === "fullscreen") {
           handleFullScreenCapture()
         }
@@ -273,6 +278,7 @@ const EnhancedElementSelector = memo(
           <FloatingToolbar
             onClose={handleClose}
             onCapture={handleCapture}
+            onModeChange={handleModeChange}
             activeMode={captureMode || "element"}
           />
         )}
@@ -335,6 +341,9 @@ const EnhancedElementSelector = memo(
               />
             )
           })()}
+
+        {/* Toast notifications */}
+        <Toaster />
       </>
     )
   }

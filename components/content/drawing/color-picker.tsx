@@ -33,7 +33,7 @@ const ColorPicker = memo(
           </PopoverTrigger>
 
           <PopoverContent
-            className="w-64 rounded-lg border border-gray-200 bg-white p-4 shadow-lg"
+            className="w-64 rounded-lg border border-gray-200 bg-white shadow-lg"
             align="start"
             side="bottom"
             sideOffset={8}

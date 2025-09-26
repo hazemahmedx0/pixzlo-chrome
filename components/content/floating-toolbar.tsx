@@ -9,10 +9,10 @@ import {
 import { memo } from "react"
 
 const FloatingToolbar = memo(
-  ({ onClose, onCapture, activeMode }: FloatingToolbarProps) => {
+  ({ onClose, onCapture, onModeChange, activeMode }: FloatingToolbarProps) => {
     return (
       <div
-        className="pointer-events-auto fixed bottom-6 left-1/2 z-[2147483647] -translate-x-1/2 rounded-full bg-white/90 shadow-lg ring-1 ring-black/5 backdrop-blur-sm"
+        className="pointer-events-auto fixed bottom-6 left-1/2 z-[2147483648] -translate-x-1/2 rounded-full bg-white/90 shadow-lg ring-1 ring-black/5 backdrop-blur-sm"
         data-pixzlo-ui="floating-toolbar"
         style={{
           fontFamily:
@@ -21,10 +21,25 @@ const FloatingToolbar = memo(
         <div className="flex items-center gap-2 px-3 py-2">
           <button
             type="button"
-            className="rounded-full p-2 transition-colors hover:bg-black/5"
+            className={`rounded-full p-2 transition-colors ${
+              activeMode === "pointer"
+                ? "hover:bg-gray-600/90 bg-gray-600 text-white shadow"
+                : "hover:bg-black/5"
+            }`}
             title="Pointer"
-            aria-label="Pointer mode">
-            <CursorIcon size={18} />
+            aria-label={
+              activeMode === "pointer" ? "Pointer mode active" : "Pointer mode"
+            }
+            onClick={(e) => {
+              e.stopPropagation()
+              window.dispatchEvent(new Event("pixzlo-toolbar-click"))
+              console.log("🖱️ Pointer button clicked", e.target)
+              onModeChange("pointer")
+            }}>
+            <CursorIcon
+              size={18}
+              weight={activeMode === "pointer" ? "fill" : "regular"}
+            />
           </button>
 
           <button
@@ -37,7 +52,13 @@ const FloatingToolbar = memo(
             title="Element Selection"
             aria-label={
               activeMode === "element" ? "Element mode active" : "Element mode"
-            }>
+            }
+            onClick={(e) => {
+              e.stopPropagation()
+              window.dispatchEvent(new Event("pixzlo-toolbar-click"))
+              console.log("🖱️ Element button clicked", e.target)
+              onModeChange("element")
+            }}>
             <BugIcon
               size={18}
               weight={activeMode === "element" ? "fill" : "regular"}
@@ -55,7 +76,16 @@ const FloatingToolbar = memo(
             aria-label={
               activeMode === "area" ? "Area mode active" : "Area mode"
             }
-            onClick={() => onCapture()}>
+            onClick={(e) => {
+              e.stopPropagation()
+              window.dispatchEvent(new Event("pixzlo-toolbar-click"))
+              console.log("🖱️ Area button clicked", e.target)
+              if (activeMode === "area") {
+                onCapture()
+              } else {
+                onModeChange("area")
+              }
+            }}>
             <CameraIcon
               size={18}
               weight={activeMode === "area" ? "fill" : "regular"}
@@ -75,7 +105,16 @@ const FloatingToolbar = memo(
                 ? "Fullscreen mode active"
                 : "Fullscreen mode"
             }
-            onClick={() => onCapture()}>
+            onClick={(e) => {
+              e.stopPropagation()
+              window.dispatchEvent(new Event("pixzlo-toolbar-click"))
+              console.log("🖱️ Fullscreen button clicked", e.target)
+              if (activeMode === "fullscreen") {
+                onCapture()
+              } else {
+                onModeChange("fullscreen")
+              }
+            }}>
             <MonitorIcon
               size={18}
               weight={activeMode === "fullscreen" ? "fill" : "regular"}
@@ -89,7 +128,12 @@ const FloatingToolbar = memo(
             className="rounded-full p-2 transition-colors hover:bg-red-50 hover:text-red-600"
             title="Close"
             aria-label="Close"
-            onClick={onClose}>
+            onClick={(e) => {
+              e.stopPropagation()
+              window.dispatchEvent(new Event("pixzlo-toolbar-click"))
+              console.log("🖱️ Close button clicked", e.target)
+              onClose()
+            }}>
             <XIcon size={18} />
           </button>
         </div>

@@ -24,7 +24,8 @@ export interface SelectionArea {
 export interface FloatingToolbarProps {
   onClose: () => void
   onCapture: () => void
-  activeMode: "element" | "area" | "fullscreen"
+  onModeChange: (mode: "pointer" | "element" | "area" | "fullscreen") => void
+  activeMode: "pointer" | "element" | "area" | "fullscreen"
 }
 
 export interface ImageCarouselProps {

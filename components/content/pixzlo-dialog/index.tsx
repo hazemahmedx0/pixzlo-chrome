@@ -320,7 +320,8 @@ const PixzloDialog = memo(
                   <Footer
                     onCancel={handleClose}
                     onSubmit={handleSubmit}
-                    onDownload={handleDownload}
+                    issueTitle={title}
+                    issueDescription={description}
                   />
                 </div>
               </div>

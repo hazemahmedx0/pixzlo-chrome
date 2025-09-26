@@ -19,6 +19,23 @@ const ElementHighlighter = ({
   // RAF-throttled mouse move to reduce layout thrash on heavy pages
   const rafId = useRef<number | null>(null)
   const lastEvent = useRef<MouseEvent | null>(null)
+  const ignoreToolbarClick = useRef<boolean>(false)
+
+  useEffect(() => {
+    const handler = () => {
+      ignoreToolbarClick.current = true
+      setTimeout(() => {
+        ignoreToolbarClick.current = false
+      }, 250)
+    }
+    window.addEventListener("pixzlo-toolbar-click", handler as EventListener)
+    return () => {
+      window.removeEventListener(
+        "pixzlo-toolbar-click",
+        handler as EventListener
+      )
+    }
+  }, [])
 
   const hitTestAndHighlight = useCallback(
     (clientX: number, clientY: number) => {
@@ -85,7 +102,92 @@ const ElementHighlighter = ({
   const handleClick = useCallback(
     async (e: MouseEvent) => {
       if (!isActive) return
+      if (ignoreToolbarClick.current) {
+        console.log(
+          "🎯 Allowing click due to toolbar interaction (global handshake)"
+        )
+        return
+      }
 
+      // Check if the click is on the floating toolbar
+      const target = e.target as HTMLElement
+      const overlayElement = overlayRef.current
+
+      // Use the composed path to safely traverse through shadow DOM boundaries
+      const composedPath =
+        typeof e.composedPath === "function" ? e.composedPath() : []
+      const pathContainsToolbar = composedPath.some((node) => {
+        if (!(node instanceof HTMLElement)) return false
+        if (node.dataset?.pixzloUi === "floating-toolbar") return true
+        return !!node.closest?.("[data-pixzlo-ui='floating-toolbar']")
+      })
+
+      // Multi-level detection for toolbar clicks
+      const isDirectToolbarElement = target.closest(
+        "[data-pixzlo-ui='floating-toolbar']"
+      )
+      const isButtonElement =
+        target.tagName === "BUTTON" && isDirectToolbarElement
+      const isIconElement = target.tagName === "svg" && isDirectToolbarElement
+
+      // Additional coordinate-based check - this is the most reliable
+      if (overlayElement) overlayElement.style.display = "none"
+      const elementAtPoint = document.elementFromPoint(e.clientX, e.clientY)
+      if (overlayElement) overlayElement.style.display = "block"
+      const toolbarAtPoint = elementAtPoint?.closest(
+        "[data-pixzlo-ui='floating-toolbar']"
+      )
+
+      // Check if PLASMO-CSUI contains toolbar by looking at its children
+      const isPlasmoUIWithToolbar =
+        target.tagName === "PLASMO-CSUI" &&
+        (target.querySelector("[data-pixzlo-ui='floating-toolbar']") ||
+          document.querySelector("[data-pixzlo-ui='floating-toolbar']"))
+
+      // For PLASMO-CSUI elements, also check if the click coordinates are within toolbar bounds
+      let isWithinToolbarBounds = false
+      if (target.tagName === "PLASMO-CSUI") {
+        const toolbar = document.querySelector(
+          "[data-pixzlo-ui='floating-toolbar']"
+        )
+        if (toolbar) {
+          const rect = toolbar.getBoundingClientRect()
+          isWithinToolbarBounds =
+            e.clientX >= rect.left &&
+            e.clientX <= rect.right &&
+            e.clientY >= rect.top &&
+            e.clientY <= rect.bottom
+        }
+      }
+
+      const isToolbarClick =
+        isDirectToolbarElement ||
+        isButtonElement ||
+        isIconElement ||
+        toolbarAtPoint ||
+        isWithinToolbarBounds ||
+        pathContainsToolbar
+
+      console.log("🔍 ElementHighlighter click detected:", {
+        target: target.tagName,
+        className: target.className,
+        isDirectToolbarElement: !!isDirectToolbarElement,
+        isButtonElement: !!isButtonElement,
+        isIconElement: !!isIconElement,
+        isPlasmoUIWithToolbar: !!isPlasmoUIWithToolbar,
+        toolbarAtPoint: !!toolbarAtPoint,
+        isWithinToolbarBounds: !!isWithinToolbarBounds,
+        isToolbarClick: !!isToolbarClick,
+        coordinates: { x: e.clientX, y: e.clientY }
+      })
+
+      if (isToolbarClick) {
+        // Allow toolbar clicks to pass through (don't prevent default)
+        console.log("🎯 Allowing toolbar click to pass through")
+        return
+      }
+
+      console.log("🚫 ElementHighlighter blocking click and selecting element")
       e.preventDefault()
       e.stopPropagation()
 
@@ -113,6 +215,19 @@ const ElementHighlighter = ({
   const handleContextMenu = useCallback(
     (e: Event) => {
       if (!isActive) return
+
+      // Check if the right-click is on the toolbar
+      const target = e.target as HTMLElement
+      const isDirectToolbarElement = target.closest(
+        "[data-pixzlo-ui='floating-toolbar']"
+      )
+      const isToolbarClick = !!isDirectToolbarElement
+
+      if (isToolbarClick) {
+        // Allow toolbar right-clicks to pass through
+        return
+      }
+
       e.preventDefault()
       onCancel()
     },

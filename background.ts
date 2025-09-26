@@ -242,7 +242,204 @@ async function renderFigmaNode(fileId, nodeId, token) {
   return imageUrl
 }
 
+// Linear Integration API calls from background script
+interface LinearStatusResponse {
+  connected: boolean
+  integration?: {
+    id: string
+    workspace_id: string
+    integration_type: "linear" | "figma"
+    configured_by: string
+    is_active: boolean
+    created_at: string
+    updated_at: string
+    integration_data: {
+      type: "linear"
+      user_name: string
+      organization_name: string
+      team_name?: string
+      teams_count: number
+      connected_at: string
+      expires_at?: string
+    }
+  }
+}
+
+interface LinearCreateIssueResponse {
+  success: boolean
+  issue?: {
+    id: string
+    identifier: string
+    title: string
+    url: string
+    state?: string
+  }
+  error?: string
+}
+
+// Linear API handler functions
+async function handleLinearStatusCheck(): Promise<{
+  success: boolean
+  data?: LinearStatusResponse
+  error?: string
+}> {
+  try {
+    const pixzloWebUrl = PIXZLO_WEB_URL // Use the same URL as other API calls
+
+    console.log("📡 Checking Linear status from background script...")
+    console.log("🔗 URL:", `${pixzloWebUrl}/api/integrations/linear/status`)
+
+    const response = await fetch(
+      `${pixzloWebUrl}/api/integrations/linear/status`,
+      {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        credentials: "include"
+      }
+    )
+
+    console.log("📡 Response status:", response.status)
+    console.log(
+      "📡 Response headers:",
+      Object.fromEntries(response.headers.entries())
+    )
+
+    if (response.status === 404) {
+      // No integration found - normal case
+      return {
+        success: true,
+        data: { connected: false }
+      }
+    }
+
+    if (response.status === 401) {
+      return {
+        success: false,
+        error: "Please log in to Pixzlo to use Linear integration"
+      }
+    }
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+    }
+
+    const data = (await response.json()) as LinearStatusResponse
+    console.log("📡 Response data:", data)
+
+    return {
+      success: true,
+      data
+    }
+  } catch (error) {
+    console.error("❌ Background Linear status check error:", error)
+    return {
+      success: false,
+      error:
+        error instanceof Error ? error.message : "Failed to check Linear status"
+    }
+  }
+}
+
+async function handleLinearCreateIssue(issueData: {
+  title: string
+  description: string
+  priority?: number
+}): Promise<{
+  success: boolean
+  data?: LinearCreateIssueResponse
+  error?: string
+}> {
+  try {
+    const pixzloWebUrl = PIXZLO_WEB_URL // Use the same URL as other API calls
+
+    console.log("📡 Creating Linear issue from background script...")
+    console.log(
+      "🔗 URL:",
+      `${pixzloWebUrl}/api/integrations/linear/create-issue`
+    )
+    console.log("📝 Issue data:", issueData)
+
+    const response = await fetch(
+      `${pixzloWebUrl}/api/integrations/linear/create-issue`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        credentials: "include",
+        body: JSON.stringify(issueData)
+      }
+    )
+
+    console.log("📡 Response status:", response.status)
+    console.log(
+      "📡 Response headers:",
+      Object.fromEntries(response.headers.entries())
+    )
+
+    if (!response.ok) {
+      let errorMessage = `HTTP ${response.status}: ${response.statusText}`
+      try {
+        const errorData = await response.json()
+        errorMessage = errorData.error ?? errorMessage
+        console.error("📡 Error response body:", errorData)
+      } catch (parseError) {
+        console.error("📡 Failed to parse error response:", parseError)
+        const textError = await response.text()
+        console.error("📡 Error response text:", textError)
+      }
+      throw new Error(errorMessage)
+    }
+
+    const data = (await response.json()) as LinearCreateIssueResponse
+    console.log("📡 Response data:", data)
+
+    return {
+      success: true,
+      data
+    }
+  } catch (error) {
+    console.error("❌ Background Linear issue creation error:", error)
+    return {
+      success: false,
+      error:
+        error instanceof Error ? error.message : "Failed to create Linear issue"
+    }
+  }
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  console.log("🔧 Background received message:", message)
+
+  // Handle Linear integration status check
+  if (message.type === "linear-check-status") {
+    handleLinearStatusCheck()
+      .then(sendResponse)
+      .catch((error) => {
+        console.error("❌ Linear status check failed:", error)
+        sendResponse({
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error"
+        })
+      })
+    return true // Keep message channel open for async response
+  }
+
+  // Handle Linear issue creation
+  if (message.type === "linear-create-issue") {
+    handleLinearCreateIssue(message.data)
+      .then(sendResponse)
+      .catch((error) => {
+        console.error("❌ Linear issue creation failed:", error)
+        sendResponse({
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error"
+        })
+      })
+    return true // Keep message channel open for async response
+  }
   if (message.type === "FIGMA_API_CALL") {
     console.log("Background script - Figma API call requested:", message.method)
 

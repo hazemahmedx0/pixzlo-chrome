@@ -24,6 +24,23 @@ const SelectionOverlay = ({
   })
 
   const overlayRef = useRef<HTMLDivElement>(null)
+  const ignoreToolbarClick = useRef<boolean>(false)
+
+  useEffect(() => {
+    const handler = () => {
+      ignoreToolbarClick.current = true
+      setTimeout(() => {
+        ignoreToolbarClick.current = false
+      }, 250)
+    }
+    window.addEventListener("pixzlo-toolbar-click", handler as EventListener)
+    return () => {
+      window.removeEventListener(
+        "pixzlo-toolbar-click",
+        handler as EventListener
+      )
+    }
+  }, [])
 
   const getMousePosition = useCallback((e: MouseEvent): Position => {
     // For rendering, we use clientX/Y which are viewport-relative.
@@ -36,10 +53,78 @@ const SelectionOverlay = ({
   const handleMouseDown = useCallback(
     (e: MouseEvent) => {
       if (!isActive) return
+      if (ignoreToolbarClick.current) {
+        console.log(
+          "🎯 SelectionOverlay: Ignoring mousedown due to toolbar interaction (global handshake)"
+        )
+        return
+      }
+
+      // Check if the click is on the floating toolbar
+      const target = e.target as HTMLElement
+
+      // Multi-level detection for toolbar clicks
+      const isDirectToolbarElement = target.closest(
+        "[data-pixzlo-ui='floating-toolbar']"
+      )
+      const isButtonElement =
+        target.tagName === "BUTTON" && isDirectToolbarElement
+      const isIconElement = target.tagName === "svg" && isDirectToolbarElement
+
+      // Additional coordinate-based check - this is the most reliable
+      const elementAtPoint = document.elementFromPoint(e.clientX, e.clientY)
+      const toolbarAtPoint = elementAtPoint?.closest(
+        "[data-pixzlo-ui='floating-toolbar']"
+      )
+
+      // For PLASMO-CSUI elements, check if the click coordinates are within toolbar bounds
+      let isWithinToolbarBounds = false
+      if (target.tagName === "PLASMO-CSUI") {
+        const toolbar = document.querySelector(
+          "[data-pixzlo-ui='floating-toolbar']"
+        )
+        if (toolbar) {
+          const rect = toolbar.getBoundingClientRect()
+          isWithinToolbarBounds =
+            e.clientX >= rect.left &&
+            e.clientX <= rect.right &&
+            e.clientY >= rect.top &&
+            e.clientY <= rect.bottom
+        }
+      }
+
+      const isToolbarClick =
+        isDirectToolbarElement ||
+        isButtonElement ||
+        isIconElement ||
+        toolbarAtPoint ||
+        isWithinToolbarBounds
+
+      console.log("🖱️ SelectionOverlay: Mouse down on:", {
+        target: target.tagName,
+        className: target.className,
+        isDirectToolbarElement: !!isDirectToolbarElement,
+        isButtonElement: !!isButtonElement,
+        isIconElement: !!isIconElement,
+        toolbarAtPoint: !!toolbarAtPoint,
+        isWithinToolbarBounds: !!isWithinToolbarBounds,
+        isToolbarClick: !!isToolbarClick,
+        coordinates: { x: e.clientX, y: e.clientY }
+      })
+
+      if (isToolbarClick) {
+        // Allow toolbar clicks to pass through (don't prevent default)
+        console.log(
+          "🎯 SelectionOverlay: Allowing toolbar click to pass through"
+        )
+        return
+      }
+
       e.preventDefault()
       e.stopPropagation()
 
       const position = getMousePosition(e)
+      console.log("🖱️ SelectionOverlay: Starting selection at:", position)
       setSelection({
         startPosition: position,
         endPosition: position,
@@ -65,7 +150,25 @@ const SelectionOverlay = ({
 
   const handleMouseUp = useCallback(
     (e: MouseEvent) => {
-      if (!isActive || !selection.isSelecting) return
+      console.log("🖱️ SelectionOverlay: Mouse up event:", {
+        isActive,
+        isSelecting: selection.isSelecting,
+        coordinates: { x: e.clientX, y: e.clientY }
+      })
+      if (ignoreToolbarClick.current) {
+        console.log(
+          "🎯 SelectionOverlay: Ignoring mouseup due to toolbar interaction (global handshake)"
+        )
+        return
+      }
+
+      if (!isActive || !selection.isSelecting) {
+        console.log(
+          "❌ SelectionOverlay: Mouse up ignored - not active or not selecting"
+        )
+        return
+      }
+
       e.preventDefault()
       e.stopPropagation()
 
@@ -84,9 +187,25 @@ const SelectionOverlay = ({
       const width = Math.abs(finalEndPosition.x - finalStartPosition.x)
       const height = Math.abs(finalEndPosition.y - finalStartPosition.y)
 
+      console.log("🔍 SelectionOverlay: Selection completed:", {
+        width,
+        height,
+        startX,
+        startY,
+        meetsMinimumSize: width > 10 && height > 10
+      })
+
       if (width > 10 && height > 10) {
         // Minimum selection size
+        console.log(
+          "✅ SelectionOverlay: Calling onSelectionComplete with area:",
+          { startX, startY, width, height }
+        )
         onSelectionComplete({ startX, startY, width, height })
+      } else {
+        console.log(
+          "❌ SelectionOverlay: Selection too small, not triggering capture"
+        )
       }
 
       setSelection({
@@ -101,6 +220,19 @@ const SelectionOverlay = ({
   const handleContextMenu = useCallback(
     (e: Event) => {
       if (!isActive) return
+
+      // Check if the right-click is on the toolbar
+      const target = e.target as HTMLElement
+      const isDirectToolbarElement = target.closest(
+        "[data-pixzlo-ui='floating-toolbar']"
+      )
+      const isToolbarClick = !!isDirectToolbarElement
+
+      if (isToolbarClick) {
+        // Allow toolbar right-clicks to pass through
+        return
+      }
+
       e.preventDefault()
       onCancel()
     },
