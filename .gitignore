@@ -31,3 +31,17 @@ dist/
 
 # typescript
 .tsbuildinfo
+
+# security - prevent committing sensitive files
+*token*.html
+*secret*.html
+*api-key*.html
+*test-token*
+*figma-token*
+*.env
+.env
+config/secrets.json
+secrets/
+*.pem
+*.key
+*.crt
