@@ -8,19 +8,11 @@ interface ImageThumbnailCarouselProps {
     isActive?: boolean
   }>
   onImageSelect: (index: number) => void
-  includeFullscreen?: boolean
-  onIncludeFullscreenChange?: (include: boolean) => void
   className?: string
 }
 
 const ImageThumbnailCarousel = memo(
-  ({
-    images,
-    onImageSelect,
-    includeFullscreen = true,
-    onIncludeFullscreenChange,
-    className = ""
-  }: ImageThumbnailCarouselProps) => {
+  ({ images, onImageSelect, className = "" }: ImageThumbnailCarouselProps) => {
     if (images.length === 0) return null
 
     return (
@@ -33,7 +25,7 @@ const ImageThumbnailCarousel = memo(
               onClick={() => onImageSelect(index)}
               className={`group relative h-12 w-16 flex-shrink-0 overflow-hidden rounded-sm border-2 transition-all ${
                 image.isActive
-                  ? "border-blue-500 ring-2 ring-blue-500/20"
+                  ? "ring-blue-500/20 border-blue-500 ring-2"
                   : "border-white bg-gray-200 hover:border-gray-300"
               }`}
               title={image.label}>
@@ -50,24 +42,6 @@ const ImageThumbnailCarousel = memo(
             </button>
           ))}
         </div>
-
-        {/* Include fullscreen option */}
-        {onIncludeFullscreenChange && (
-          <div className="flex items-center justify-center gap-2">
-            <input
-              id="include-full-page"
-              className="h-4 w-4"
-              type="checkbox"
-              checked={includeFullscreen}
-              onChange={(e) => onIncludeFullscreenChange(e.target.checked)}
-            />
-            <label
-              htmlFor="include-full-page"
-              className="text-xs text-gray-700">
-              Also include fullscreen screenshot
-            </label>
-          </div>
-        )}
       </div>
     )
   }

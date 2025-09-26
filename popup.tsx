@@ -1,7 +1,7 @@
 import "globals.css"
 
-import { LoginButton } from "@/components/popup/login-button"
 import { LoadingView } from "@/components/popup/loading"
+import { LoginButton } from "@/components/popup/login-button"
 import { ProfileInfo } from "@/components/popup/profile-info"
 import { useProfile } from "@/hooks/use-profile"
 

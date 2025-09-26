@@ -3,6 +3,7 @@ import type React from "react"
 export interface CSSProperty {
   name: string
   value: string
+  rawValue?: string
   computedValue?: string
   color?: string
 }
@@ -17,7 +18,7 @@ export class CSSExtractor {
     const computedStyle = window.getComputedStyle(element)
     const selector = this.generateSelector(element)
 
-    // Key CSS properties to extract
+    // Key CSS properties to extract (expanded list)
     const propertiesToExtract = [
       "width",
       "height",
@@ -34,22 +35,37 @@ export class CSSExtractor {
       "position",
       "line-height",
       "text-align",
+      "letter-spacing",
+      "text-transform",
       "opacity",
-      "z-index"
+      "z-index",
+      "gap",
+      "background",
+      "background-image",
+      "background-size",
+      "background-position",
+      "box-shadow",
+      "min-width",
+      "max-width",
+      "min-height",
+      "max-height"
     ]
 
     const properties: CSSProperty[] = propertiesToExtract
       .map((prop) => {
-        const value = computedStyle.getPropertyValue(prop)
+        const computedValue = computedStyle.getPropertyValue(prop)
+        const rawValue = this.extractRawValue(element, prop)
+
         const property: CSSProperty = {
           name: prop,
-          value: value || "0px",
-          computedValue: value
+          value: computedValue || "0px",
+          rawValue: rawValue || computedValue,
+          computedValue
         }
 
         // Extract color values for color properties
         if (prop.includes("color") || prop === "border") {
-          property.color = this.extractColor(value)
+          property.color = this.extractColor(computedValue)
         }
 
         return property
@@ -131,17 +147,144 @@ export class CSSExtractor {
     return undefined
   }
 
-  static formatValue(property: CSSProperty): string {
+  private static extractRawValue(
+    element: HTMLElement,
+    property: string
+  ): string | undefined {
+    // Try to get the raw value from inline styles first
+    const inlineValue = element.style.getPropertyValue(property)
+    if (inlineValue) {
+      return inlineValue
+    }
+
+    // For CSS custom properties (variables), try to find the original declaration
+    if (property.includes("color") || property === "border") {
+      // Check if the computed value contains CSS variables
+      const computedValue = window
+        .getComputedStyle(element)
+        .getPropertyValue(property)
+
+      // Look for CSS variable patterns in stylesheets
+      const sheets = Array.from(document.styleSheets)
+      for (const sheet of sheets) {
+        try {
+          const rules = Array.from(sheet.cssRules || [])
+          for (const rule of rules) {
+            if (
+              rule instanceof CSSStyleRule &&
+              element.matches(rule.selectorText)
+            ) {
+              const ruleValue = rule.style.getPropertyValue(property)
+              if (ruleValue && ruleValue.includes("var(--")) {
+                return ruleValue
+              }
+            }
+          }
+        } catch (e) {
+          // CORS or other access issues
+          continue
+        }
+      }
+    }
+
+    return undefined
+  }
+
+  static formatValue(
+    property: CSSProperty,
+    mode: "raw" | "absolute" = "absolute"
+  ): string {
+    const value =
+      mode === "raw" ? property.rawValue || property.value : property.value
+
     // Format values for display
     if (property.name === "margin" || property.name === "padding") {
-      return property.value.replace(/\s+/g, " ").trim()
+      return value.replace(/\s+/g, " ").trim()
     }
 
     if (property.name === "font-family") {
-      return property.value.replace(/"/g, '"')
+      return value.replace(/"/g, '"')
     }
 
-    return property.value
+    // Convert rem to px for absolute mode
+    if (mode === "absolute" && value.includes("rem")) {
+      return this.convertRemToPx(value)
+    }
+
+    // Normalize colors for consistent display
+    if (property.name.includes("color") || property.name === "border") {
+      return this.normalizeColorForDisplay(value, mode)
+    }
+
+    return value
+  }
+
+  /**
+   * Normalize color values for consistent display across modes
+   */
+  private static normalizeColorForDisplay(
+    value: string,
+    mode: "raw" | "absolute"
+  ): string {
+    if (!value) return value
+
+    // For absolute mode, ensure colors are in consistent format
+    if (mode === "absolute") {
+      // Parse and normalize RGB colors
+      const rgbMatch = value.match(
+        /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+))?\s*\)/
+      )
+      if (rgbMatch) {
+        const r = parseInt(rgbMatch[1], 10)
+        const g = parseInt(rgbMatch[2], 10)
+        const b = parseInt(rgbMatch[3], 10)
+        const a = rgbMatch[4] ? parseFloat(rgbMatch[4]) : 1
+
+        // Always return rgba format for consistency
+        return `rgba(${r}, ${g}, ${b}, ${a})`
+      }
+
+      // Convert hex to rgba for consistency
+      const hexMatch = value.match(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/)
+      if (hexMatch) {
+        const hex = hexMatch[1]
+        let r: number, g: number, b: number
+
+        if (hex.length === 3) {
+          r = parseInt(hex[0] + hex[0], 16)
+          g = parseInt(hex[1] + hex[1], 16)
+          b = parseInt(hex[2] + hex[2], 16)
+        } else {
+          r = parseInt(hex.substr(0, 2), 16)
+          g = parseInt(hex.substr(2, 2), 16)
+          b = parseInt(hex.substr(4, 2), 16)
+        }
+
+        return `rgba(${r}, ${g}, ${b}, 1)`
+      }
+    }
+
+    return value
+  }
+
+  private static convertRemToPx(value: string): string {
+    const remRegex = /([\d.]+)rem/g
+    const rootFontSize =
+      parseFloat(window.getComputedStyle(document.documentElement).fontSize) ||
+      16
+
+    return value.replace(remRegex, (match, remValue) => {
+      const pxValue = parseFloat(remValue) * rootFontSize
+      return `${pxValue}px`
+    })
+  }
+
+  static getRawValue(property: CSSProperty): string {
+    return property.rawValue || property.value
+  }
+
+  static getAbsoluteValue(property: CSSProperty): string {
+    return this.formatValue(property, "absolute")
   }
 
   static getColorStyle(property: CSSProperty): React.CSSProperties | undefined {

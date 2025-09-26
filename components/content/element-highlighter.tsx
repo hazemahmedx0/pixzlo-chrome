@@ -26,25 +26,22 @@ const ElementHighlighter = ({
       const highlight = highlightRef.current
       if (!overlay || !highlight) return
 
-      // Temporarily disable hit testing for both the overlay and its host element
-      overlay.style.pointerEvents = "none"
-      const rootNode = overlay.getRootNode()
-      const hostEl = (
-        rootNode instanceof ShadowRoot ? rootNode.host : null
-      ) as HTMLElement | null
-      const hostPrevPointer = hostEl?.style.pointerEvents
-      if (hostEl) hostEl.style.pointerEvents = "none"
+      // Temporarily hide the overlay to perform an accurate hit test
+      overlay.style.display = "none"
 
       const el = document.elementFromPoint(
         clientX,
         clientY
       ) as HTMLElement | null
 
-      // Restore pointer events immediately after hit test
-      overlay.style.pointerEvents = "auto"
-      if (hostEl) hostEl.style.pointerEvents = hostPrevPointer ?? ""
+      // Restore the overlay's visibility immediately after
+      overlay.style.display = "block"
 
-      if (!el || el === overlay) {
+      // Check if the element is the body or the overlay's host, and ignore
+      const rootNode = overlay.getRootNode()
+      const hostEl = rootNode instanceof ShadowRoot ? rootNode.host : null
+
+      if (!el || el === document.body || el === hostEl) {
         highlight.style.display = "none"
         currentRect.current = null
         currentElement.current = null
@@ -108,7 +105,6 @@ const ElementHighlighter = ({
         highlightBox.style.display = "none"
       }
 
-      console.log("🖱️ Element clicked, calling onElementSelect with:", element)
       onElementSelect(element, rect)
     },
     [isActive, onElementSelect]
@@ -198,7 +194,7 @@ const ElementHighlighter = ({
       }}>
       <div
         ref={highlightRef}
-        className="pointer-events-none absolute border-2 border-blue-500 bg-blue-500/20"
+        className="bg-blue-500/20 pointer-events-none absolute border-2 border-blue-500"
         style={{ display: "none" }}
       />
 

@@ -26,9 +26,10 @@ const SelectionOverlay = ({
   const overlayRef = useRef<HTMLDivElement>(null)
 
   const getMousePosition = useCallback((e: MouseEvent): Position => {
+    // For rendering, we use clientX/Y which are viewport-relative.
     return {
-      x: e.clientX + window.scrollX,
-      y: e.clientY + window.scrollY
+      x: e.clientX,
+      y: e.clientY
     }
   }, [])
 
@@ -68,11 +69,20 @@ const SelectionOverlay = ({
       e.preventDefault()
       e.stopPropagation()
 
-      const { startPosition, endPosition } = selection
-      const startX = Math.min(startPosition.x, endPosition.x)
-      const startY = Math.min(startPosition.y, endPosition.y)
-      const width = Math.abs(endPosition.x - startPosition.x)
-      const height = Math.abs(endPosition.y - startPosition.y)
+      // Final position is viewport-relative, so add scroll offsets for capture
+      const finalStartPosition = {
+        x: selection.startPosition.x + window.scrollX,
+        y: selection.startPosition.y + window.scrollY
+      }
+      const finalEndPosition = {
+        x: selection.endPosition.x + window.scrollX,
+        y: selection.endPosition.y + window.scrollY
+      }
+
+      const startX = Math.min(finalStartPosition.x, finalEndPosition.x)
+      const startY = Math.min(finalStartPosition.y, finalEndPosition.y)
+      const width = Math.abs(finalEndPosition.x - finalStartPosition.x)
+      const height = Math.abs(finalEndPosition.y - finalStartPosition.y)
 
       if (width > 10 && height > 10) {
         // Minimum selection size

@@ -1,5 +1,11 @@
 import type { FloatingToolbarProps } from "@/types/ui"
-import { Bug, Camera, Cursor, Monitor, X } from "phosphor-react"
+import {
+  BugIcon,
+  CameraIcon,
+  CursorIcon,
+  MonitorIcon,
+  XIcon
+} from "@phosphor-icons/react"
 import { memo } from "react"
 
 const FloatingToolbar = memo(
@@ -18,21 +24,21 @@ const FloatingToolbar = memo(
             className="rounded-full p-2 transition-colors hover:bg-black/5"
             title="Pointer"
             aria-label="Pointer mode">
-            <Cursor size={18} />
+            <CursorIcon size={18} />
           </button>
 
           <button
             type="button"
             className={`rounded-full p-2 transition-colors ${
               activeMode === "element"
-                ? "bg-blue-600 text-white shadow hover:bg-blue-600/90"
+                ? "hover:bg-blue-600/90 bg-blue-600 text-white shadow"
                 : "hover:bg-black/5"
             }`}
             title="Element Selection"
             aria-label={
               activeMode === "element" ? "Element mode active" : "Element mode"
             }>
-            <Bug
+            <BugIcon
               size={18}
               weight={activeMode === "element" ? "fill" : "regular"}
             />
@@ -42,7 +48,7 @@ const FloatingToolbar = memo(
             type="button"
             className={`rounded-full p-2 transition-colors ${
               activeMode === "area"
-                ? "bg-green-600 text-white shadow hover:bg-green-600/90"
+                ? "hover:bg-green-600/90 bg-green-600 text-white shadow"
                 : "hover:bg-black/5"
             }`}
             title="Capture Area"
@@ -50,7 +56,7 @@ const FloatingToolbar = memo(
               activeMode === "area" ? "Area mode active" : "Area mode"
             }
             onClick={() => onCapture()}>
-            <Camera
+            <CameraIcon
               size={18}
               weight={activeMode === "area" ? "fill" : "regular"}
             />
@@ -60,7 +66,7 @@ const FloatingToolbar = memo(
             type="button"
             className={`rounded-full p-2 transition-colors ${
               activeMode === "fullscreen"
-                ? "bg-purple-600 text-white shadow hover:bg-purple-600/90"
+                ? "hover:bg-purple-600/90 bg-purple-600 text-white shadow"
                 : "hover:bg-black/5"
             }`}
             title="Capture Full Screen"
@@ -70,7 +76,7 @@ const FloatingToolbar = memo(
                 : "Fullscreen mode"
             }
             onClick={() => onCapture()}>
-            <Monitor
+            <MonitorIcon
               size={18}
               weight={activeMode === "fullscreen" ? "fill" : "regular"}
             />
@@ -84,7 +90,7 @@ const FloatingToolbar = memo(
             title="Close"
             aria-label="Close"
             onClick={onClose}>
-            <X size={18} />
+            <XIcon size={18} />
           </button>
         </div>
       </div>

@@ -1,58 +1,73 @@
 import type { Profile } from "@/types/profile"
-import { Bug, Camera, Cursor, Monitor, X } from "phosphor-react"
+import { CameraIcon, CropIcon, HandTapIcon, XIcon } from "@phosphor-icons/react"
+import logoUrl from "data-base64:~assets/pixzlo-colord-logo.svg"
+import { useEffect, useState } from "react"
 
 import { CaptureButton } from "./capture-button"
 
 export const ProfileInfo = ({ profile }: { profile: Profile }): JSX.Element => {
+  const [imageSrc, setImageSrc] = useState<string>(logoUrl)
+
+  useEffect(() => {
+    // Fallback to chrome.runtime.getURL if the import doesn't work
+    if (!logoUrl || logoUrl.includes("undefined")) {
+      try {
+        const fallbackUrl = chrome.runtime.getURL(
+          "assets/pixzlo-colord-logo.svg"
+        )
+        setImageSrc(fallbackUrl)
+      } catch (error) {
+        console.warn("Failed to load logo:", error)
+        // You could set a default icon or text here
+        setImageSrc("")
+      }
+    }
+  }, [])
+
   return (
-    <div className="w-[25rem] select-none">
-      <div className="flex items-center justify-between px-3 pt-3">
+    <div className="flex w-72 select-none flex-col gap-4 p-4">
+      <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <img
-            src={chrome.runtime.getURL("assets/pixzlo-colord-logo.svg")}
-            alt="Pixzlo"
-            className="h-5 w-5"
-          />
+          {imageSrc ? (
+            <img
+              src={imageSrc}
+              alt="Pixzlo"
+              className="h-5 w-5 saturate-150"
+              onError={() => {
+                // Final fallback - you could use a text logo or icon
+                setImageSrc("")
+              }}
+            />
+          ) : (
+            <div className="flex h-5 w-5 items-center justify-center rounded bg-sky-500">
+              <span className="text-xs font-bold text-white">P</span>
+            </div>
+          )}
         </div>
         <button
           className="text-neutral-400 hover:text-neutral-600"
           onClick={() => window.close()}
           aria-label="Close popup">
-          <X size={16} weight="bold" />
+          <XIcon size={16} weight="bold" />
         </button>
       </div>
-      <div className="px-3 pb-3">
-        <div className="mt-3 rounded-2xl border border-neutral-200 p-2 shadow-sm">
-          <CaptureButton
-            mode="element"
-            className="h-12 w-full justify-start gap-2 rounded-xl bg-sky-500 text-white hover:bg-sky-600"
-            icon={false}>
-            <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-white/20">
-              <Cursor size={16} weight="bold" />
-            </span>
+      <div className="">
+        <div className="flex flex-col gap-2">
+          <CaptureButton mode="element" icon={false}>
+            <HandTapIcon size={16} weight="fill" />
             Select element
           </CaptureButton>
 
-          <CaptureButton
-            mode="area"
-            className="mt-2 h-12 w-full justify-start gap-2 rounded-xl border border-neutral-200 bg-white hover:bg-neutral-50"
-            icon={false}>
-            <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-neutral-100">
-              <Bug size={16} />
-            </span>
+          <CaptureButton mode="area" icon={false}>
+            <CropIcon size={16} />
             Capture area
           </CaptureButton>
 
-          <CaptureButton
-            mode="fullscreen"
-            className="mt-2 h-12 w-full justify-start gap-2 rounded-xl border border-neutral-200 bg-white hover:bg-neutral-50"
-            icon={false}>
-            <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-neutral-100">
-              <Monitor size={16} />
-            </span>
+          <CaptureButton mode="fullscreen" icon={false}>
+            <CameraIcon size={16} />
             Capture entire screen
           </CaptureButton>
-          <div className="mt-4 border-t pt-3 text-sm text-neutral-500">
+          <div className="mt-4 border-t border-gray-150 pt-3 text-center text-sm text-neutral-500">
             Recent issues ↗
           </div>
         </div>

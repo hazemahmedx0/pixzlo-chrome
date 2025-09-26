@@ -12,6 +12,7 @@ export interface ScreenshotPair {
 
 export interface Screenshot {
   dataUrl: string
+  compositeImageUrl?: string
   timestamp: number
   type: CaptureType
   metadata?: {
@@ -28,6 +29,7 @@ export type CaptureType = "area" | "fullscreen" | "element"
 export interface CaptureOptions {
   type: CaptureType
   includeMetadata?: boolean
+  preserveOriginalAspect?: boolean
 }
 
 export interface IssueData {

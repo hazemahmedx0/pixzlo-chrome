@@ -10,19 +10,29 @@
     "package": "plasmo package"
   },
   "dependencies": {
+    "@phosphor-icons/react": "^2.1.10",
     "@radix-ui/react-dialog": "^1.1.14",
     "@radix-ui/react-label": "2.1.2",
+    "@radix-ui/react-popover": "^1.1.14",
+    "@radix-ui/react-select": "^2.2.6",
+    "@radix-ui/react-separator": "^1.1.7",
     "@radix-ui/react-slot": "1.1.2",
     "@radix-ui/react-tabs": "^1.1.12",
+    "@radix-ui/react-tooltip": "^1.2.8",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
+    "konva": "^9.3.22",
     "lucide-react": "0.474.0",
-    "phosphor-react": "1.4.1",
+    "motion": "^12.23.12",
     "plasmo": "0.90.5",
     "react": "18.2.0",
+    "react-colorful": "^5.6.1",
     "react-dom": "18.2.0",
+    "react-konva": "^18.2.12",
     "tailwind-merge": "3.0.1",
-    "tailwindcss-animate": "1.0.7"
+    "tailwindcss-animate": "1.0.7",
+    "use-image": "^1.1.4",
+    "zustand": "^5.0.7"
   },
   "devDependencies": {
     "@ianvs/prettier-plugin-sort-imports": "4.1.1",
@@ -42,12 +52,26 @@
   "manifest": {
     "host_permissions": [
       "https://*/*",
-      "http://localhost:3000/*"
+      "http://localhost:3000/*",
+      "https://api.figma.com/*"
     ],
     "permissions": [
       "tabs",
       "activeTab",
-      "desktopCapture"
+      "desktopCapture",
+      "identity",
+      "system.display"
+    ],
+    "web_accessible_resources": [
+      {
+        "resources": [
+          "assets/*.svg",
+          "assets/*.png"
+        ],
+        "matches": [
+          "<all_urls>"
+        ]
+      }
     ]
   }
 }
