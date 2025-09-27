@@ -150,10 +150,18 @@ export function useLinearIntegration(): LinearIntegrationState & {
   }
 }
 
+export interface LinearIssueOptions {
+  teamId?: string
+  projectId?: string
+  assigneeId?: string
+  stateId?: string
+}
+
 export async function createLinearIssue(issueData: {
   title: string
   description: string
   priority?: number
+  options?: LinearIssueOptions
 }): Promise<{ success: boolean; issueUrl?: string; error?: string }> {
   try {
     console.log("📡 Creating Linear issue via background script...")
@@ -169,7 +177,13 @@ export async function createLinearIssue(issueData: {
       error?: string
     }>((resolve) => {
       chrome.runtime.sendMessage(
-        { type: "linear-create-issue", data: issueData },
+        {
+          type: "linear-create-issue",
+          data: {
+            ...issueData,
+            linearOptions: issueData.options
+          }
+        },
         (response) => {
           if (chrome.runtime.lastError) {
             resolve({

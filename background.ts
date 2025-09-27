@@ -277,6 +277,44 @@ interface LinearCreateIssueResponse {
   error?: string
 }
 
+interface LinearOptionsResponse {
+  teams?: Array<{
+    id: string
+    name: string
+    key: string
+    description?: string
+    color?: string
+  }>
+  projects?: Array<{
+    id: string
+    name: string
+    description?: string
+    state: string
+    progress: number
+    url: string
+  }>
+  users?: Array<{
+    id: string
+    name: string
+    displayName: string
+    email?: string
+    avatarUrl?: string
+    isActive: boolean
+  }>
+  workflowStates?: Array<{
+    id: string
+    name: string
+    color: string
+    description?: string
+    type: string
+    position: number
+    team?: {
+      id: string
+      name: string
+    }
+  }>
+}
+
 // Linear API handler functions
 async function handleLinearStatusCheck(): Promise<{
   success: boolean
@@ -346,6 +384,12 @@ async function handleLinearCreateIssue(issueData: {
   title: string
   description: string
   priority?: number
+  linearOptions?: {
+    teamId?: string
+    projectId?: string
+    assigneeId?: string
+    stateId?: string
+  }
 }): Promise<{
   success: boolean
   data?: LinearCreateIssueResponse
@@ -410,6 +454,121 @@ async function handleLinearCreateIssue(issueData: {
   }
 }
 
+// Fetch Linear options (teams, projects, users, workflow states)
+async function handleLinearFetchOptions(): Promise<{
+  success: boolean
+  data?: LinearOptionsResponse
+  error?: string
+}> {
+  try {
+    const pixzloWebUrl = PIXZLO_WEB_URL
+
+    console.log("📡 Fetching Linear options from background script...")
+
+    // Fetch all Linear options in parallel
+    const [
+      teamsResponse,
+      projectsResponse,
+      usersResponse,
+      workflowStatesResponse
+    ] = await Promise.allSettled([
+      fetch(`${pixzloWebUrl}/api/integrations/linear/teams`, {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include"
+      }),
+      fetch(`${pixzloWebUrl}/api/integrations/linear/projects`, {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include"
+      }),
+      fetch(`${pixzloWebUrl}/api/integrations/linear/users`, {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include"
+      }),
+      fetch(`${pixzloWebUrl}/api/integrations/linear/workflow-states`, {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include"
+      })
+    ])
+
+    const options: LinearOptionsResponse = {}
+
+    // Process teams response
+    if (teamsResponse.status === "fulfilled" && teamsResponse.value.ok) {
+      try {
+        options.teams = await teamsResponse.value.json()
+        console.log("✅ Fetched Linear teams:", options.teams?.length ?? 0)
+      } catch (error) {
+        console.warn("⚠️ Failed to parse teams response:", error)
+      }
+    } else {
+      console.warn("⚠️ Teams fetch failed:", teamsResponse)
+    }
+
+    // Process projects response
+    if (projectsResponse.status === "fulfilled" && projectsResponse.value.ok) {
+      try {
+        options.projects = await projectsResponse.value.json()
+        console.log(
+          "✅ Fetched Linear projects:",
+          options.projects?.length ?? 0
+        )
+      } catch (error) {
+        console.warn("⚠️ Failed to parse projects response:", error)
+      }
+    } else {
+      console.warn("⚠️ Projects fetch failed:", projectsResponse)
+    }
+
+    // Process users response
+    if (usersResponse.status === "fulfilled" && usersResponse.value.ok) {
+      try {
+        options.users = await usersResponse.value.json()
+        console.log("✅ Fetched Linear users:", options.users?.length ?? 0)
+      } catch (error) {
+        console.warn("⚠️ Failed to parse users response:", error)
+      }
+    } else {
+      console.warn("⚠️ Users fetch failed:", usersResponse)
+    }
+
+    // Process workflow states response
+    if (
+      workflowStatesResponse.status === "fulfilled" &&
+      workflowStatesResponse.value.ok
+    ) {
+      try {
+        options.workflowStates = await workflowStatesResponse.value.json()
+        console.log(
+          "✅ Fetched Linear workflow states:",
+          options.workflowStates?.length ?? 0
+        )
+      } catch (error) {
+        console.warn("⚠️ Failed to parse workflow states response:", error)
+      }
+    } else {
+      console.warn("⚠️ Workflow states fetch failed:", workflowStatesResponse)
+    }
+
+    return {
+      success: true,
+      data: options
+    }
+  } catch (error) {
+    console.error("❌ Background Linear options fetch error:", error)
+    return {
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Failed to fetch Linear options"
+    }
+  }
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   console.log("🔧 Background received message:", message)
 
@@ -433,6 +592,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .then(sendResponse)
       .catch((error) => {
         console.error("❌ Linear issue creation failed:", error)
+        sendResponse({
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error"
+        })
+      })
+    return true // Keep message channel open for async response
+  }
+
+  // Handle Linear options fetch
+  if (message.type === "linear-fetch-options") {
+    handleLinearFetchOptions()
+      .then(sendResponse)
+      .catch((error) => {
+        console.error("❌ Linear options fetch failed:", error)
         sendResponse({
           success: false,
           error: error instanceof Error ? error.message : "Unknown error"

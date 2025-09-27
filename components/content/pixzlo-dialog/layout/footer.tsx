@@ -1,8 +1,14 @@
+import { LinearOptionsPopover } from "@/components/content/pixzlo-dialog/linear-options"
+import type {
+  LinearOptionCategory,
+  LinearSelectionState
+} from "@/components/content/pixzlo-dialog/linear-options/category-select"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import {
   createLinearIssue,
-  useLinearIntegration
+  useLinearIntegration,
+  type LinearIssueOptions
 } from "@/hooks/use-linear-integration"
 import { memo, useState } from "react"
 import { toast } from "sonner"
@@ -22,8 +28,21 @@ const Footer = memo(
     issueDescription
   }: FooterProps): JSX.Element => {
     const [shareToLinear, setShareToLinear] = useState(true)
+    const [linearSelections, setLinearSelections] =
+      useState<LinearSelectionState>({})
     const { isConnected, isLoading, error, retryConnection } =
       useLinearIntegration()
+
+    const handleLinearSelectionChange = (
+      category: LinearOptionCategory,
+      optionId: string,
+      label: string
+    ): void => {
+      setLinearSelections((prev) => ({
+        ...prev,
+        [category]: { id: optionId, label }
+      }))
+    }
 
     const handleConnect = (): void => {
       // Open Pixzlo-web settings page for Linear integration
@@ -38,8 +57,10 @@ const Footer = memo(
         console.log("🔍 Debug values:", {
           shareToLinear,
           isConnected,
-          issueTitle: issueTitle || "NO_TITLE",
-          issueDescription: issueDescription || "NO_DESCRIPTION"
+          issueTitle: issueTitle || "EMPTY_TITLE",
+          issueTitleLength: issueTitle?.length || 0,
+          issueDescription: issueDescription || "EMPTY_DESCRIPTION",
+          issueDescriptionLength: issueDescription?.length || 0
         })
 
         // First, create the main issue
@@ -50,19 +71,29 @@ const Footer = memo(
         if (shareToLinear && isConnected) {
           console.log("🚀 Starting Linear issue creation...")
 
-          // Use title or fallback to a default
-          const finalTitle = issueTitle?.trim() || "Pixzlo Issue Report"
+          // Use title or fallback to meaningful defaults
+          const finalTitle = issueTitle?.trim() || "Issue Report from Pixzlo"
           const finalDescription =
-            issueDescription?.trim() || "Issue reported via Pixzlo extension"
+            issueDescription?.trim() ||
+            "This issue was created using the Pixzlo browser extension. Please check the attached screenshots for details."
 
           console.log("📝 Using title:", finalTitle)
           console.log("📝 Using description:", finalDescription)
 
           try {
+            // Convert linearSelections to LinearIssueOptions
+            const linearOptions: LinearIssueOptions = {
+              teamId: linearSelections.teams?.id,
+              projectId: linearSelections.projects?.id,
+              assigneeId: linearSelections.users?.id,
+              stateId: linearSelections.workflowStates?.id
+            }
+
             const linearResult = await createLinearIssue({
               title: finalTitle,
               description: finalDescription,
-              priority: 2 // Medium priority
+              priority: 2, // Medium priority
+              options: linearOptions
             })
             console.log("📝 Linear result:", linearResult)
 
@@ -126,9 +157,14 @@ const Footer = memo(
                 <Switch
                   checked={shareToLinear}
                   onCheckedChange={setShareToLinear}
-                  className="data-[state=checked]:bg-blue-600"
+                  className="data-[state=checked]:bg-primary"
                 />
                 <span className="text-sm text-gray-700">Share to Linear</span>
+                <LinearOptionsPopover
+                  isConnected={isConnected}
+                  selections={linearSelections}
+                  onSelectionChange={handleLinearSelectionChange}
+                />
               </div>
             ) : (
               <div className="flex items-center gap-2">

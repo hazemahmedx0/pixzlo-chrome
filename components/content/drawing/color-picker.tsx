@@ -5,7 +5,7 @@ import {
 } from "@/components/ui/popover"
 import { Palette } from "lucide-react"
 import { memo } from "react"
-import { HexColorPicker } from "react-colorful"
+import { SketchPicker } from "react-color"
 
 import { EXTENDED_COLORS, isValidHexColor, MAIN_COLORS } from "./drawing-utils"
 
@@ -33,7 +33,7 @@ const ColorPicker = memo(
           </PopoverTrigger>
 
           <PopoverContent
-            className="w-64 rounded-lg border border-gray-200 bg-white shadow-lg"
+            className="w-auto rounded-lg border border-gray-200 !bg-white shadow-lg"
             align="start"
             side="bottom"
             sideOffset={8}
@@ -97,35 +97,36 @@ const ColorPicker = memo(
                   flexDirection: "column",
                   gap: "12px"
                 }}>
-                <HexColorPicker
+                <SketchPicker
                   color={color}
-                  onChange={onColorChange}
-                  style={{ width: "100%", height: "120px" }}
-                />
-                <div
-                  style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                  <input
-                    type="text"
-                    value={color}
-                    onChange={(e) => {
-                      const value = e.target.value
-                      if (isValidHexColor(value)) {
-                        onColorChange(value)
+                  onChange={(colorResult) => {
+                    onColorChange(colorResult.hex)
+                  }}
+                  disableAlpha
+                  presetColors={[
+                    "#ef4444",
+                    "#3b82f6",
+                    "#22c55e",
+                    "#06b6d4",
+                    "#f59e0b",
+                    "#8b5cf6",
+                    "#ec4899",
+                    "#6b7280",
+                    "#000000",
+                    "#ffffff"
+                  ]}
+                  styles={{
+                    default: {
+                      picker: {
+                        width: "220px",
+                        boxShadow: "none",
+                        border: "1px solid #e5e7eb",
+                        borderRadius: "6px",
+                        fontFamily: "inherit"
                       }
-                    }}
-                    style={{
-                      flex: 1,
-                      borderRadius: "4px",
-                      border: "1px solid #d1d5db",
-                      padding: "4px 8px",
-                      fontFamily: "monospace",
-                      fontSize: "12px",
-                      outline: "none"
-                    }}
-                    placeholder="#000000"
-                    maxLength={7}
-                  />
-                </div>
+                    }
+                  }}
+                />
               </div>
             </div>
           </PopoverContent>
