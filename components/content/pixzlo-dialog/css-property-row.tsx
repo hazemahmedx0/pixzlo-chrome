@@ -4,9 +4,11 @@ import {
   type EnhancedFigmaProperties
 } from "@/lib/enhanced-figma-utils"
 import { ValueComparison, type ComparisonResult } from "@/lib/value-comparison"
+import { usePixzloDialogStore } from "@/stores/pixzlo-dialog"
 import { memo } from "react"
 
 import type { ValueDisplayMode } from "./code-value-display"
+import PropertyCheckbox from "./property-checkbox"
 import PropertyValueDisplay from "./property-value-display"
 
 interface FigmaProperties {
@@ -44,6 +46,13 @@ const CSSPropertyRow = memo(
     index,
     figmaProperties
   }: CSSPropertyRowProps): JSX.Element => {
+    const { selectedProperties, toggleProperty } = usePixzloDialogStore()
+    const isSelected = selectedProperties.has(property.name)
+
+    const handleCheckboxChange = (): void => {
+      toggleProperty(property.name)
+    }
+
     // Get Figma property value using enhanced extractor
     const getFigmaValue = (): string | null => {
       if (!figmaProperties) return null
@@ -123,7 +132,15 @@ const CSSPropertyRow = memo(
     return (
       <div
         key={`${property.name}-${index}`}
-        className="grid grid-cols-[120px_1fr_1fr] gap-2 border-b border-gray-100 px-3 py-2 text-paragraph-xs text-gray-600 last:border-b-0 hover:bg-gray-100">
+        className="grid grid-cols-[32px_120px_1fr_1fr] gap-2 border-b border-gray-100 px-3 py-2 text-paragraph-xs text-gray-600 last:border-b-0 hover:bg-gray-100">
+        {/* Checkbox */}
+        <div className="flex items-start pt-0.5">
+          <PropertyCheckbox
+            checked={isSelected}
+            onCheckedChange={handleCheckboxChange}
+          />
+        </div>
+
         {/* Property name */}
         <div className="z-5 sticky left-0 flex items-start break-all pt-0.5 text-gray-700">
           {property.name}

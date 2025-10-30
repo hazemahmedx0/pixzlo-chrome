@@ -7,13 +7,15 @@ import {
   SelectValue
 } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
+import { useFigmaPreferences } from "@/hooks/use-figma-preferences"
+import { useFigmaDataStore } from "@/stores/figma-data"
 import { useFigmaToolbarStore, type FigmaFrame } from "@/stores/figma-toolbar"
 import {
   ArrowsClockwiseIcon,
   ArrowUpRightIcon,
   PlusIcon
 } from "@phosphor-icons/react"
-import { memo, useCallback } from "react"
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 interface FigmaToolbarProps {
   onAddFrame: () => void
@@ -43,17 +45,91 @@ const FigmaToolbar = memo(
       setCurrentFrame
     } = useFigmaToolbarStore()
 
+    const { preference, hasPreferenceForWebsite } = useFigmaPreferences()
+    const { fetchMetadata: refreshFigmaMetadata } = useFigmaDataStore()
+    const { refreshMetadata } = useFigmaDataStore()
+
+    const [sortedFrames, setSortedFrames] = useState<FigmaFrame[]>([])
+    const [hasAutoSelectedFrame, setHasAutoSelectedFrame] = useState(false)
+
+    // Use refs to avoid dependency issues
+    const onFrameChangeRef = useRef(onFrameChange)
+    onFrameChangeRef.current = onFrameChange
+
+    // Get current website URL
+    const currentWebsiteUrl = useMemo(() => {
+      return window.location.href
+    }, [])
+
+    // Reset auto-selection flag when preference changes
+    useEffect(() => {
+      setHasAutoSelectedFrame(false)
+    }, [preference?.lastUsedFrameId])
+
+    const preferredFrame = useMemo(() => {
+      if (!preference || !hasPreferenceForWebsite(currentWebsiteUrl)) {
+        return undefined
+      }
+      return availableFrames.find(
+        (frame) => frame.id === preference.lastUsedFrameId
+      )
+    }, [
+      availableFrames,
+      preference,
+      hasPreferenceForWebsite,
+      currentWebsiteUrl
+    ])
+
+    // Use frames in natural order (sorted by created_at DESC from API) and auto-select when needed
+    useEffect(() => {
+      if (availableFrames.length === 0) {
+        setSortedFrames([])
+        return
+      }
+
+      // Use frames as-is without reordering (already sorted by created_at DESC from API)
+      const sortedFramesList = [...availableFrames]
+
+      setSortedFrames(sortedFramesList)
+
+      if (hasAutoSelectedFrame) {
+        return
+      }
+
+      if (
+        currentFrame &&
+        availableFrames.some((frame) => frame.id === currentFrame.id)
+      ) {
+        // Respect the already-selected frame and stop auto-selection loops
+        setHasAutoSelectedFrame(true)
+        return
+      }
+
+      const targetFrame = preferredFrame || sortedFramesList[0]
+      if (!targetFrame) {
+        return
+      }
+
+      setCurrentFrame(targetFrame)
+      onFrameChangeRef.current(targetFrame)
+      setHasAutoSelectedFrame(true)
+    }, [
+      availableFrames,
+      preferredFrame,
+      hasAutoSelectedFrame,
+      currentFrame,
+      setCurrentFrame
+    ])
+
     const handleFrameSelect = useCallback(
       (frameId: string): void => {
-        const selectedFrame = availableFrames.find(
-          (frame) => frame.id === frameId
-        )
+        const selectedFrame = sortedFrames.find((frame) => frame.id === frameId)
         if (selectedFrame) {
           setCurrentFrame(selectedFrame)
           onFrameChange(selectedFrame)
         }
       },
-      [availableFrames, setCurrentFrame, onFrameChange]
+      [sortedFrames, setCurrentFrame, onFrameChange]
     )
 
     const handleAddFrame = useCallback((): void => {
@@ -65,11 +141,11 @@ const FigmaToolbar = memo(
     const handleRefresh = useCallback(async (): Promise<void> => {
       try {
         setIsRefreshing(true)
-        await onRefreshFrames?.()
+        await Promise.all([onRefreshFrames?.(), refreshFigmaMetadata()])
       } finally {
         setIsRefreshing(false)
       }
-    }, [onRefreshFrames, setIsRefreshing])
+    }, [onRefreshFrames, refreshFigmaMetadata, setIsRefreshing])
 
     const handleOpenInFigma = useCallback((): void => {
       if (currentFrame) {
@@ -83,15 +159,22 @@ const FigmaToolbar = memo(
         className={`flex items-center justify-between border-t border-gray-200 bg-white px-4 py-3 ${className || ""}`}>
         {/* Left side - Frame selector or placeholder */}
         <div className="flex items-center gap-3">
-          {availableFrames.length === 0 ? (
+          {sortedFrames.length === 0 ? (
             // No frames - show placeholder text
             <span className="text-sm text-gray-600">No frames available</span>
           ) : (
             // Has frames - show selector
             <>
               <Select
-                value={currentFrame?.id || ""}
-                onValueChange={handleFrameSelect}>
+                value={
+                  currentFrame?.id ??
+                  preferredFrame?.id ??
+                  sortedFrames[0]?.id ??
+                  ""
+                }
+                onValueChange={(frameId) => {
+                  void handleFrameSelect(frameId)
+                }}>
                 <SelectTrigger className="w-48">
                   <SelectValue placeholder="Select a frame" />
                 </SelectTrigger>
@@ -100,7 +183,7 @@ const FigmaToolbar = memo(
                   side="top"
                   sideOffset={8}
                   className="z-[2147483650]">
-                  {availableFrames.map((frame) => (
+                  {sortedFrames.map((frame, index) => (
                     <SelectItem key={frame.id} value={frame.id}>
                       <div className="flex items-center gap-2">
                         {frame.imageUrl && (
@@ -112,7 +195,17 @@ const FigmaToolbar = memo(
                             />
                           </div>
                         )}
-                        <span className="truncate">{frame.name}</span>
+                        <span className="flex items-center gap-1 truncate">
+                          {frame.name}
+                          {preference &&
+                            hasPreferenceForWebsite(currentWebsiteUrl) &&
+                            frame.figmaFrameId ===
+                              preference.lastUsedFrameId && (
+                              <span className="text-[10px] uppercase text-green-600">
+                                Default
+                              </span>
+                            )}
+                        </span>
                       </div>
                     </SelectItem>
                   ))}

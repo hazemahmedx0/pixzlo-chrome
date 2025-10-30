@@ -63,9 +63,26 @@ const FigmaFrameSelector = memo(
     // Initialize toolbar store
     const { setAvailableFrames, setCurrentFrame } = useFigmaToolbarStore()
 
-    // Initialize store with frame data
+    const framesAreEqual = useCallback(
+      (a: FigmaFrame[], b: FigmaFrame[]) => {
+        if (a === b) {
+          return true
+        }
+        if (a.length !== b.length) {
+          return false
+        }
+        for (let i = 0; i < a.length; i++) {
+          if (a[i].id !== b[i].id) {
+            return false
+          }
+        }
+        return true
+      },
+      []
+    )
+
+    // Initialize store with frame data while avoiding redundant updates
     useEffect(() => {
-      // If we have a current frame but no available frames, add the current frame to available frames
       let framesToSet = availableFrames
       if (
         currentFrame &&
@@ -74,11 +91,25 @@ const FigmaFrameSelector = memo(
         framesToSet = [...availableFrames, currentFrame]
       }
 
-      setAvailableFrames(framesToSet)
-      if (currentFrame) {
+      const storeState = useFigmaToolbarStore.getState()
+
+      if (!framesAreEqual(storeState.availableFrames, framesToSet)) {
+        setAvailableFrames(framesToSet)
+      }
+
+      if (
+        currentFrame &&
+        (!storeState.currentFrame || storeState.currentFrame.id !== currentFrame.id)
+      ) {
         setCurrentFrame(currentFrame)
       }
-    }, [availableFrames, currentFrame, setAvailableFrames, setCurrentFrame])
+    }, [
+      availableFrames,
+      currentFrame,
+      setAvailableFrames,
+      setCurrentFrame,
+      framesAreEqual
+    ])
 
     // Toolbar handlers
     const handleAddFrame = useCallback((): void => {

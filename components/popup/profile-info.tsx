@@ -1,3 +1,4 @@
+import { PIXZLO_WEB_URL } from "@/lib/constants"
 import type { Profile } from "@/types/profile"
 import { CameraIcon, CropIcon, HandTapIcon, XIcon } from "@phosphor-icons/react"
 import logoUrl from "data-base64:~assets/pixzlo-colord-logo.svg"
@@ -67,15 +68,23 @@ export const ProfileInfo = ({ profile }: { profile: Profile }): JSX.Element => {
             <CameraIcon size={16} />
             Capture entire screen
           </CaptureButton>
-          <div className="mt-4 border-t border-gray-150 pt-3 text-center text-sm text-neutral-500">
+          <a
+            href={`${PIXZLO_WEB_URL}/issues`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-4 block border-t border-gray-150 pt-3 text-center text-sm text-neutral-500 hover:text-neutral-700">
             Recent issues ↗
-          </div>
+          </a>
         </div>
         <div className="mt-3 text-xs text-neutral-400">
-          2025 Pixzlo.com{" "}
-          <span className="float-right cursor-pointer text-sky-600">
+          © 2025 Pixzlo.com{" "}
+          <a
+            href="https://tally.so/r/mVRDya"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="float-right cursor-pointer text-sky-600 hover:text-sky-700">
             Feedback
-          </span>
+          </a>
         </div>
       </div>
     </div>

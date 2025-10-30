@@ -5,13 +5,11 @@ import type {
 } from "@/components/content/pixzlo-dialog/linear-options/category-select"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
-import {
-  createLinearIssue,
-  useLinearIntegration,
-  type LinearIssueOptions
-} from "@/hooks/use-linear-integration"
-import { memo, useState } from "react"
-import { toast } from "sonner"
+import { useIssueSubmissionWithPreferences } from "@/hooks/use-issue-submission-with-preferences"
+import { useLinearIntegration } from "@/hooks/use-linear-integration"
+import { PIXZLO_WEB_URL } from "@/lib/constants"
+import { useLinearDataStore } from "@/stores/linear-data"
+import { memo, useCallback, useEffect, useState } from "react"
 
 interface FooterProps {
   onCancel: () => void
@@ -32,113 +30,92 @@ const Footer = memo(
       useState<LinearSelectionState>({})
     const { isConnected, isLoading, error, retryConnection } =
       useLinearIntegration()
+    const { metadata, fetchMetadata } = useLinearDataStore()
+
+    // Load Linear defaults automatically when connected
+    useEffect(() => {
+      if (isConnected && !isLoading) {
+        // Fetch metadata to get preferences and options
+        fetchMetadata().catch((err) => {
+          console.error("Failed to fetch Linear metadata:", err)
+        })
+      }
+    }, [isConnected, isLoading, fetchMetadata])
+
+    // Auto-apply defaults from preferences
+    useEffect(() => {
+      if (isConnected && metadata.preference) {
+        const newSelections: LinearSelectionState = {}
+
+        // Apply team default
+        if (metadata.preference.lastUsedTeamId && metadata.teams) {
+          const team = metadata.teams.find(
+            (t) => t.id === metadata.preference?.lastUsedTeamId
+          )
+          if (team) {
+            newSelections.teams = { id: team.id, label: team.name }
+          }
+        }
+
+        // Apply project default
+        if (metadata.preference.lastUsedProjectId && metadata.projects) {
+          const project = metadata.projects.find(
+            (p) => p.id === metadata.preference?.lastUsedProjectId
+          )
+          if (project) {
+            newSelections.projects = { id: project.id, label: project.name }
+          }
+        }
+
+        // Only update if we have defaults to apply
+        if (Object.keys(newSelections).length > 0) {
+          setLinearSelections((prev) => ({
+            ...prev,
+            ...newSelections
+          }))
+        }
+      }
+    }, [isConnected, metadata.preference, metadata.teams, metadata.projects])
+
+    // Use the enhanced submission hook with preferences
+    const { handleSubmit: handleSubmitWithPreferences } =
+      useIssueSubmissionWithPreferences(
+        onSubmit,
+        shareToLinear && isConnected ? linearSelections : undefined
+      )
 
     const handleLinearSelectionChange = (
       category: LinearOptionCategory,
       optionId: string,
       label: string
     ): void => {
-      setLinearSelections((prev) => ({
-        ...prev,
-        [category]: { id: optionId, label }
-      }))
+      setLinearSelections((prev) => {
+        const newSelections = {
+          ...prev,
+          [category]: { id: optionId, label }
+        }
+
+        // Clear workflow state if team changes (workflow states are team-specific)
+        if (category === "teams" && prev.workflowStates) {
+          console.log("🔄 Team changed, clearing workflow state selection")
+          delete newSelections.workflowStates
+        }
+
+        return newSelections
+      })
     }
 
     const handleConnect = (): void => {
       // Open Pixzlo-web settings page for Linear integration
       // This would typically open in a new tab/window
-      const pixzloWebUrl = process.env.PIXZLO_WEB_URL || "http://localhost:3000"
+      const pixzloWebUrl = PIXZLO_WEB_URL
       window.open(`${pixzloWebUrl}/settings/integrations`, "_blank")
     }
 
-    const handleSubmit = async (): Promise<void> => {
-      try {
-        console.log("🎯 Footer handleSubmit called")
-        console.log("🔍 Debug values:", {
-          shareToLinear,
-          isConnected,
-          issueTitle: issueTitle || "EMPTY_TITLE",
-          issueTitleLength: issueTitle?.length || 0,
-          issueDescription: issueDescription || "EMPTY_DESCRIPTION",
-          issueDescriptionLength: issueDescription?.length || 0
-        })
-
-        // First, create the main issue
-        await onSubmit()
-        console.log("✅ Main issue created successfully")
-
-        // Then, if Linear sharing is enabled and connected, create Linear issue
-        if (shareToLinear && isConnected) {
-          console.log("🚀 Starting Linear issue creation...")
-
-          // Use title or fallback to meaningful defaults
-          const finalTitle = issueTitle?.trim() || "Issue Report from Pixzlo"
-          const finalDescription =
-            issueDescription?.trim() ||
-            "This issue was created using the Pixzlo browser extension. Please check the attached screenshots for details."
-
-          console.log("📝 Using title:", finalTitle)
-          console.log("📝 Using description:", finalDescription)
-
-          try {
-            // Convert linearSelections to LinearIssueOptions
-            const linearOptions: LinearIssueOptions = {
-              teamId: linearSelections.teams?.id,
-              projectId: linearSelections.projects?.id,
-              assigneeId: linearSelections.users?.id,
-              stateId: linearSelections.workflowStates?.id
-            }
-
-            const linearResult = await createLinearIssue({
-              title: finalTitle,
-              description: finalDescription,
-              priority: 2, // Medium priority
-              options: linearOptions
-            })
-            console.log("📝 Linear result:", linearResult)
-
-            if (linearResult.success && linearResult.issueUrl) {
-              toast.success("Issue created successfully!", {
-                description: `Created in Pixzlo and Linear. Issue: ${linearResult.issueUrl}`
-              })
-            } else {
-              // Main issue was created, but Linear failed
-              toast.success("Issue created in Pixzlo", {
-                description:
-                  "Linear sync failed: " +
-                  (linearResult.error || "Unknown error")
-              })
-            }
-          } catch (linearError) {
-            // Main issue was created, but Linear failed
-            toast.success("Issue created in Pixzlo", {
-              description:
-                "Linear sync failed. Check your integration settings."
-            })
-          }
-        } else {
-          console.log("❌ Linear issue NOT created because:", {
-            shareToLinear: `${shareToLinear} (toggle state)`,
-            isConnected: `${isConnected} (Linear connection status)`,
-            reason: !shareToLinear
-              ? "Toggle is OFF"
-              : !isConnected
-                ? "Linear not connected"
-                : "Unknown"
-          })
-          toast.success("Issue created successfully!", {
-            description:
-              "Your issue has been created and the link has been copied to your clipboard."
-          })
-        }
-      } catch (error) {
-        console.error("Error creating issue:", error)
-        toast.error("Failed to create issue", {
-          description:
-            "There was an error creating your issue. Please try again."
-        })
-      }
-    }
+    const handleSubmit = useCallback((): void => {
+      // Call the enhanced submission that saves preferences
+      handleSubmitWithPreferences()
+    }, [handleSubmitWithPreferences])
 
     return (
       <div className="mt-4 pb-4 pt-0">

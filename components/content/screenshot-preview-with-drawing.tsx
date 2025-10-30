@@ -392,14 +392,6 @@ const ScreenshotPreviewWithDrawing = memo(
                   <span className="text-sm font-medium">Change Design</span>
                 </div>
               </div>
-              <div className="absolute bottom-2 left-2 right-2 rounded-md bg-black/70 px-3 py-2 text-white">
-                <p className="truncate text-sm font-medium">
-                  {figmaDesign.designName}
-                </p>
-                <p className="truncate text-xs text-gray-300">
-                  {figmaDesign.figmaUrl}
-                </p>
-              </div>
             </div>
           ) : (
             <div

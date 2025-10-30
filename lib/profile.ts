@@ -1,8 +1,9 @@
+import { PIXZLO_WEB_URL } from "@/lib/constants"
 import type { Profile } from "@/types/profile"
 
 export const fetchProfile = async (): Promise<Profile | null> => {
   try {
-    const res = await fetch("http://localhost:3000/api/user/profile", {
+    const res = await fetch(`${PIXZLO_WEB_URL}/api/user/profile`, {
       credentials: "include"
     })
     if (!res.ok) {

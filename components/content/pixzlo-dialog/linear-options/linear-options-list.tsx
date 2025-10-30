@@ -1,4 +1,4 @@
-import type { LinearOptionsData } from "@/hooks/use-linear-options"
+import type { LinearOptionsData } from "@/stores/linear-data"
 
 import type {
   LinearOptionCategory,

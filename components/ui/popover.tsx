@@ -95,7 +95,7 @@ const PopoverTrigger = React.forwardRef<
         ).current = node
       }
     },
-    [forwardedRef]
+    [] // Remove forwardedRef from dependencies to prevent infinite loops
   )
 
   return <PopoverPrimitive.Trigger ref={setRefs} {...props} />

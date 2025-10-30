@@ -99,7 +99,7 @@ const TooltipTrigger = React.forwardRef<
         ).current = node
       }
     },
-    [forwardedRef]
+    [] // Remove forwardedRef from dependencies to prevent infinite loops
   )
 
   return (

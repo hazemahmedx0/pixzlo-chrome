@@ -1,89 +1,79 @@
-// Hard-code the URL for now - update this to your Pixzlo-web URL
-const PIXZLO_WEB_URL = "http://localhost:3000"
+import { PIXZLO_WEB_URL } from "~lib/constants"
 
-// Token cache to avoid repeated API calls
-let tokenCache = {
-  data: null,
-  expiresAt: null,
-  isRefreshing: false
+// Figma metadata cache (includes token)
+let figmaMetadataCache: {
+  data: FigmaMetadataResponse | undefined
+  expiresAt: Date | undefined
+} = {
+  data: undefined,
+  expiresAt: undefined
 }
 
-// Helper function to get cached token or fetch new one
-async function getCachedToken() {
-  // Check if we have a valid cached token
+// Cache frame render responses to avoid repeated network calls for the same file/frame
+interface FrameRenderResponse {
+  fileId: string
+  nodeId: string
+  frameData: any
+  elements: any[]
+  imageUrl: string
+  fileName: string
+}
+
+const FRAME_RENDER_CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+const frameRenderResultCache = new Map<
+  string,
+  { data: FrameRenderResponse; expiresAt: number }
+>()
+const inFlightFrameRenderRequests = new Map<
+  string,
+  Promise<FrameRenderResponse>
+>()
+
+// Helper function to get Figma access token from metadata cache
+async function getFigmaAccessToken() {
+  // Check if we have cached metadata with a valid token
   if (
-    tokenCache.data &&
-    tokenCache.expiresAt &&
-    new Date() < tokenCache.expiresAt
+    figmaMetadataCache.data &&
+    figmaMetadataCache.data.token?.accessToken &&
+    figmaMetadataCache.expiresAt &&
+    new Date() < figmaMetadataCache.expiresAt
   ) {
-    console.log("🔑 Using cached token")
-    return tokenCache.data
+    console.log("🔑 Using cached token from metadata")
+    return figmaMetadataCache.data.token.accessToken
   }
 
-  // If already refreshing, wait for it
-  if (tokenCache.isRefreshing) {
-    console.log("🔑 Token refresh in progress, waiting...")
-    while (tokenCache.isRefreshing) {
-      await new Promise((resolve) => setTimeout(resolve, 100))
-    }
-    return tokenCache.data
+  // Fetch fresh metadata
+  console.log("🔑 Fetching Figma metadata to get token...")
+  const metadataResponse = await handleFigmaFetchMetadata({})
+
+  if (!metadataResponse.success || !metadataResponse.data) {
+    throw new Error(metadataResponse.error || "Failed to fetch Figma metadata")
   }
 
-  // Fetch new token
-  console.log("🔑 Fetching new token...")
-  tokenCache.isRefreshing = true
-
-  try {
-    const response = await fetch(
-      `${PIXZLO_WEB_URL}/api/integrations/figma/token`,
-      {
-        method: "GET",
-        credentials: "include"
-      }
+  const accessToken = metadataResponse.data.token?.accessToken
+  if (!accessToken) {
+    throw new Error(
+      metadataResponse.data.token?.error || "Missing Figma access token"
     )
-
-    if (!response.ok) {
-      const errorData = await response
-        .json()
-        .catch(() => ({ error: "Unknown error" }))
-      throw new Error(
-        `Token fetch failed: ${response.status} - ${errorData.error}`
-      )
-    }
-
-    const tokenData = await response.json()
-
-    // Check token expiration
-    if (tokenData.expires_at) {
-      const expirationDate = new Date(tokenData.expires_at)
-      const now = new Date()
-      if (expirationDate <= now) {
-        throw new Error("Token has expired")
-      }
-      tokenCache.expiresAt = expirationDate
-    } else {
-      // If no expiration, cache for 1 hour
-      tokenCache.expiresAt = new Date(Date.now() + 60 * 60 * 1000)
-    }
-
-    tokenCache.data = tokenData
-    console.log("🔑 Token cached successfully")
-    return tokenData
-  } catch (error) {
-    console.error("🔑 Token fetch error:", error)
-    throw error
-  } finally {
-    tokenCache.isRefreshing = false
   }
+
+  // Cache metadata for 5 minutes
+  figmaMetadataCache.data = metadataResponse.data
+  figmaMetadataCache.expiresAt = new Date(Date.now() + 5 * 60 * 1000)
+
+  console.log("🔑 Token cached from metadata successfully")
+  return accessToken
 }
 
 // Helper function to parse Figma URL and extract file ID and node ID
-function parseFigmaUrl(url) {
+function parseFigmaUrl(
+  url: string
+): { fileId: string | undefined; nodeId: string | undefined } | undefined {
   try {
     const urlObj = new URL(url)
 
     // Extract file ID from different URL patterns
-    let fileId = null
+    let fileId: string | undefined
     if (url.includes("/design/")) {
       fileId = url.match(/\/design\/([^\/\?]+)/)?.[1]
     } else if (url.includes("/file/")) {
@@ -95,16 +85,21 @@ function parseFigmaUrl(url) {
 
     return {
       fileId: fileId,
-      nodeId: nodeId ? nodeId.replace("-", ":") : null // Convert 119-1968 to 119:1968
+      nodeId: nodeId ? nodeId.replace("-", ":") : undefined // Convert 119-1968 to 119:1968
     }
   } catch (error) {
     console.error("Failed to parse Figma URL:", error)
-    return null
+    return undefined
   }
 }
 
 // Helper function to extract frames from Figma file data (based on reviewit implementation)
-function extractFramesFromFigmaData(data) {
+function extractFramesFromFigmaData(data: any): Array<{
+  id: string
+  name: string
+  type: string
+  absoluteBoundingBox: any
+}> {
   const frames = []
 
   function traverseNode(node) {
@@ -134,7 +129,18 @@ function extractFramesFromFigmaData(data) {
 }
 
 // Helper function to extract elements from a specific frame/node
-function extractElementsFromNode(node, frameId) {
+function extractElementsFromNode(
+  node: any,
+  frameId: string
+): Array<{
+  id: string
+  name: string
+  type: string
+  absoluteBoundingBox: any
+  relativeTransform: any
+  constraints: any
+  depth: number
+}> {
   const elements = []
 
   function traverseNode(currentNode, depth = 0) {
@@ -167,8 +173,8 @@ function extractElementsFromNode(node, frameId) {
 }
 
 // Helper function to find a specific node by ID in Figma data
-function findNodeById(data, nodeId) {
-  function searchNode(node) {
+function findNodeById(data: any, nodeId: string): any | undefined {
+  function searchNode(node: any): any | undefined {
     if (node.id === nodeId) {
       return node
     }
@@ -178,7 +184,7 @@ function findNodeById(data, nodeId) {
         if (found) return found
       }
     }
-    return null
+    return undefined
   }
 
   if (data.document && data.document.children) {
@@ -187,11 +193,11 @@ function findNodeById(data, nodeId) {
       if (found) return found
     }
   }
-  return null
+  return undefined
 }
 
 // Helper to convert data URL to Blob (for Konva exports)
-function dataUrlToBlob(dataUrl: string): Blob | null {
+function dataUrlToBlob(dataUrl: string): Blob | undefined {
   try {
     const [header, base64] = dataUrl.split(",")
     const mimeMatch = header.match(/data:([^;]+);base64/)
@@ -205,12 +211,16 @@ function dataUrlToBlob(dataUrl: string): Blob | null {
     return new Blob([bytes], { type: mime })
   } catch (e) {
     console.warn("Failed to convert dataUrl to Blob", e)
-    return null
+    return undefined
   }
 }
 
 // Helper function to render a Figma frame/node as an image (based on reviewit implementation)
-async function renderFigmaNode(fileId, nodeId, token) {
+async function renderFigmaNode(
+  fileId: string,
+  nodeId: string,
+  token: string
+): Promise<string> {
   // Use cache-busting headers only (version parameter not supported for images endpoint)
   const response = await fetch(
     `https://api.figma.com/v1/images/${fileId}?ids=${nodeId}&format=png&scale=2&use_absolute_bounds=true`,
@@ -313,6 +323,16 @@ interface LinearOptionsResponse {
       name: string
     }
   }>
+  preference?:
+    | {
+        id: string
+        lastUsedTeamId?: string
+        lastUsedTeamName?: string
+        lastUsedProjectId?: string
+        lastUsedProjectName?: string
+        updatedAt: string
+      }
+    | undefined
 }
 
 // Linear API handler functions
@@ -454,8 +474,151 @@ async function handleLinearCreateIssue(issueData: {
   }
 }
 
-// Fetch Linear options (teams, projects, users, workflow states)
-async function handleLinearFetchOptions(): Promise<{
+// Helper function to convert severity to Linear priority number
+function getPriorityNumber(severity: string): number {
+  const priorityMap: Record<string, number> = {
+    urgent: 1,
+    high: 2,
+    medium: 3,
+    low: 4
+  }
+  return priorityMap[severity] || 3
+}
+
+// Helper function to build rich Linear description with markdown
+function buildLinearDescription(
+  payload: any,
+  websiteUrl: string,
+  issueId: string,
+  imageUrls?: { element?: string; figma?: string; main?: string }
+): string {
+  const sections: string[] = []
+
+  // Description section
+  if (payload.description) {
+    sections.push("## Description")
+    sections.push(payload.description)
+    sections.push("")
+  }
+
+  // Screenshots section with table layout
+  if (imageUrls && (imageUrls.element || imageUrls.figma || imageUrls.main)) {
+    sections.push("## Screenshots")
+    sections.push("")
+
+    // Build table header
+    const headers: string[] = []
+    const images: string[] = []
+
+    if (imageUrls.element) {
+      headers.push("Selected Element")
+      images.push(`![Element](${imageUrls.element})`)
+    }
+
+    if (imageUrls.figma) {
+      headers.push("Figma Design")
+      images.push(`![Figma](${imageUrls.figma})`)
+    }
+
+    if (imageUrls.main) {
+      headers.push("With Highlights")
+      images.push(`![Highlighted](${imageUrls.main})`)
+    }
+
+    // Create markdown table with images side by side
+    sections.push(`| ${headers.join(" | ")} |`)
+    sections.push(`| ${headers.map(() => "---").join(" | ")} |`)
+    sections.push(`| ${images.join(" | ")} |`)
+    sections.push("")
+  }
+
+  // Style Comparison section
+  if (
+    payload?.cssStyles &&
+    Array.isArray(payload.cssStyles) &&
+    payload.cssStyles.length > 0
+  ) {
+    sections.push("## Style Comparison")
+    sections.push("")
+    sections.push("| Property | Implemented | Design | Match |")
+    sections.push("|----------|-------------|--------|-------|")
+
+    payload.cssStyles.forEach((prop: any) => {
+      const implemented = prop.implemented_value || "N/A"
+      const design = prop.design_value || "undefined"
+      const match =
+        prop.design_value && prop.implemented_value === prop.design_value
+          ? "✅"
+          : "❌"
+
+      sections.push(
+        `| ${prop.property_name} | ${implemented} | ${design} | ${match} |`
+      )
+    })
+
+    sections.push("")
+  }
+
+  // Links section
+  const hasFigmaLink = payload?.figma?.figmaUrl
+  const hasWebsiteLink = websiteUrl
+
+  if (hasFigmaLink || hasWebsiteLink) {
+    sections.push("## Links")
+    sections.push("")
+
+    if (hasFigmaLink) {
+      sections.push(`- **Figma:** [View Design](${payload.figma.figmaUrl})`)
+    }
+
+    if (hasWebsiteLink) {
+      sections.push(`- **Website:** [View Page](${websiteUrl})`)
+    }
+
+    const issueLink = `${PIXZLO_WEB_URL}/issues/${issueId}`
+    sections.push(`- **Pixzlo Issue:** [View Details](${issueLink})`)
+
+    sections.push("")
+  }
+
+  // Technical Details section
+  const metadata = payload?.metadata
+  if (metadata) {
+    const hasMetadata =
+      metadata.browser ||
+      metadata.device ||
+      metadata.screenResolution ||
+      metadata.viewportSize
+
+    if (hasMetadata) {
+      sections.push("## Technical Details")
+      sections.push("")
+
+      if (metadata.browser) {
+        sections.push(`- **Browser:** ${metadata.browser}`)
+      }
+
+      if (metadata.device) {
+        sections.push(`- **Device:** ${metadata.device}`)
+      }
+
+      if (metadata.screenResolution) {
+        sections.push(`- **Screen Resolution:** ${metadata.screenResolution}`)
+      }
+
+      if (metadata.viewportSize) {
+        sections.push(`- **Viewport:** ${metadata.viewportSize}`)
+      }
+
+      sections.push("")
+    }
+  }
+
+  return sections.join("\n")
+}
+
+// Fetch Linear metadata (teams, projects, users, workflow states, preference)
+async function handleLinearFetchMetadata(): Promise<{
   success: boolean
   data?: LinearOptionsResponse
   error?: string
@@ -463,108 +626,550 @@ async function handleLinearFetchOptions(): Promise<{
   try {
     const pixzloWebUrl = PIXZLO_WEB_URL
 
-    console.log("📡 Fetching Linear options from background script...")
+    console.log("📡 Fetching Linear metadata from background script...")
 
-    // Fetch all Linear options in parallel
-    const [
-      teamsResponse,
-      projectsResponse,
-      usersResponse,
-      workflowStatesResponse
-    ] = await Promise.allSettled([
-      fetch(`${pixzloWebUrl}/api/integrations/linear/teams`, {
+    const response = await fetch(
+      `${pixzloWebUrl}/api/integrations/linear/metadata`,
+      {
         method: "GET",
         headers: { "Content-Type": "application/json" },
         credentials: "include"
-      }),
-      fetch(`${pixzloWebUrl}/api/integrations/linear/projects`, {
-        method: "GET",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include"
-      }),
-      fetch(`${pixzloWebUrl}/api/integrations/linear/users`, {
-        method: "GET",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include"
-      }),
-      fetch(`${pixzloWebUrl}/api/integrations/linear/workflow-states`, {
-        method: "GET",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include"
-      })
-    ])
-
-    const options: LinearOptionsResponse = {}
-
-    // Process teams response
-    if (teamsResponse.status === "fulfilled" && teamsResponse.value.ok) {
-      try {
-        options.teams = await teamsResponse.value.json()
-        console.log("✅ Fetched Linear teams:", options.teams?.length ?? 0)
-      } catch (error) {
-        console.warn("⚠️ Failed to parse teams response:", error)
       }
-    } else {
-      console.warn("⚠️ Teams fetch failed:", teamsResponse)
+    )
+
+    if (!response.ok) {
+      const errorData = await response
+        .json()
+        .catch(() => ({ error: "Unknown error" }))
+
+      if (response.status === 401) {
+        return {
+          success: false,
+          error: "Please log in to Pixzlo to use this feature."
+        }
+      }
+
+      return {
+        success: false,
+        error: errorData.error || "Failed to fetch Linear metadata"
+      }
     }
 
-    // Process projects response
-    if (projectsResponse.status === "fulfilled" && projectsResponse.value.ok) {
-      try {
-        options.projects = await projectsResponse.value.json()
-        console.log(
-          "✅ Fetched Linear projects:",
-          options.projects?.length ?? 0
-        )
-      } catch (error) {
-        console.warn("⚠️ Failed to parse projects response:", error)
-      }
-    } else {
-      console.warn("⚠️ Projects fetch failed:", projectsResponse)
+    const result = (await response.json()) as {
+      success: boolean
+      data?: LinearOptionsResponse
+      error?: string
     }
 
-    // Process users response
-    if (usersResponse.status === "fulfilled" && usersResponse.value.ok) {
-      try {
-        options.users = await usersResponse.value.json()
-        console.log("✅ Fetched Linear users:", options.users?.length ?? 0)
-      } catch (error) {
-        console.warn("⚠️ Failed to parse users response:", error)
+    if (!result.success || !result.data) {
+      return {
+        success: false,
+        error: result.error || "Failed to fetch Linear metadata"
       }
-    } else {
-      console.warn("⚠️ Users fetch failed:", usersResponse)
     }
 
-    // Process workflow states response
-    if (
-      workflowStatesResponse.status === "fulfilled" &&
-      workflowStatesResponse.value.ok
-    ) {
-      try {
-        options.workflowStates = await workflowStatesResponse.value.json()
-        console.log(
-          "✅ Fetched Linear workflow states:",
-          options.workflowStates?.length ?? 0
-        )
-      } catch (error) {
-        console.warn("⚠️ Failed to parse workflow states response:", error)
-      }
-    } else {
-      console.warn("⚠️ Workflow states fetch failed:", workflowStatesResponse)
-    }
+    console.log("✅ Linear metadata fetched")
 
     return {
       success: true,
-      data: options
+      data: result.data
     }
   } catch (error) {
-    console.error("❌ Background Linear options fetch error:", error)
+    console.error("❌ Background Linear metadata fetch error:", error)
     return {
       success: false,
       error:
         error instanceof Error
           ? error.message
-          : "Failed to fetch Linear options"
+          : "Failed to fetch Linear metadata"
+    }
+  }
+}
+
+// Figma preference handler functions
+async function handleFigmaFetchPreference(data: {
+  websiteUrl: string
+}): Promise<{
+  success: boolean
+  preference?: {
+    id: string
+    lastUsedFrameId: string
+    lastUsedFrameName: string | undefined
+    lastUsedFileId: string
+    frameUrl: string | undefined
+    frameImageUrl: string | undefined
+    updatedAt: string
+  }
+  error?: string
+}> {
+  try {
+    console.log("🎯 Fetching Figma preference for website:", data.websiteUrl)
+
+    const response = await fetch(
+      `${PIXZLO_WEB_URL}/api/integrations/figma/preferences?websiteUrl=${encodeURIComponent(data.websiteUrl)}`,
+      {
+        method: "GET",
+        credentials: "include"
+      }
+    )
+
+    if (!response.ok) {
+      const errorData = await response
+        .json()
+        .catch(() => ({ error: "Unknown error" }))
+
+      if (response.status === 401) {
+        return {
+          success: false,
+          error: "Please log in to Pixzlo to use this feature."
+        }
+      }
+
+      return {
+        success: false,
+        error: errorData.error || "Failed to fetch Figma preference"
+      }
+    }
+
+    const result = await response.json()
+    console.log("✅ Figma preference fetched successfully:", result.preference)
+
+    return {
+      success: true,
+      preference: result.preference
+    }
+  } catch (error) {
+    console.error("❌ Figma preference fetch error:", error)
+    return {
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Failed to fetch Figma preference"
+    }
+  }
+}
+
+// Linear preference handler functions
+async function handleLinearFetchPreference(): Promise<{
+  success: boolean
+  preference?: {
+    id: string
+    lastUsedTeamId: string | undefined
+    lastUsedTeamName: string | undefined
+    lastUsedProjectId: string | undefined
+    lastUsedProjectName: string | undefined
+    updatedAt: string
+  }
+  error?: string
+}> {
+  try {
+    console.log("🎯 Fetching Linear preference")
+
+    const response = await fetch(
+      `${PIXZLO_WEB_URL}/api/integrations/linear/preferences`,
+      {
+        method: "GET",
+        credentials: "include"
+      }
+    )
+
+    if (!response.ok) {
+      const errorData = await response
+        .json()
+        .catch(() => ({ error: "Unknown error" }))
+
+      if (response.status === 401) {
+        return {
+          success: false,
+          error: "Please log in to Pixzlo to use this feature."
+        }
+      }
+
+      return {
+        success: false,
+        error: errorData.error || "Failed to fetch Linear preference"
+      }
+    }
+
+    const result = await response.json()
+    console.log("✅ Linear preference fetched successfully:", result.preference)
+
+    return {
+      success: true,
+      preference: result.preference
+    }
+  } catch (error) {
+    console.error("❌ Linear preference fetch error:", error)
+    return {
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Failed to fetch Linear preference"
+    }
+  }
+}
+
+async function handleLinearUpdatePreference(data: {
+  teamId?: string
+  teamName?: string
+  projectId?: string
+  projectName?: string
+}): Promise<{
+  success: boolean
+  preference?: {
+    id: string
+    lastUsedTeamId: string | undefined
+    lastUsedTeamName: string | undefined
+    lastUsedProjectId: string | undefined
+    lastUsedProjectName: string | undefined
+    updatedAt: string
+  }
+  error?: string
+}> {
+  try {
+    console.log("🎯 Updating Linear preference:", data)
+
+    const response = await fetch(
+      `${PIXZLO_WEB_URL}/api/integrations/linear/preferences`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        credentials: "include",
+        body: JSON.stringify(data)
+      }
+    )
+
+    if (!response.ok) {
+      const errorData = await response
+        .json()
+        .catch(() => ({ error: "Unknown error" }))
+
+      if (response.status === 401) {
+        return {
+          success: false,
+          error: "Please log in to Pixzlo to use this feature."
+        }
+      }
+
+      return {
+        success: false,
+        error: errorData.error || "Failed to update Linear preference"
+      }
+    }
+
+    const result = await response.json()
+    console.log("✅ Linear preference updated successfully:", result.preference)
+
+    return {
+      success: true,
+      preference: result.preference
+    }
+  } catch (error) {
+    console.error("❌ Linear preference update error:", error)
+    return {
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Failed to update Linear preference"
+    }
+  }
+}
+
+interface FigmaMetadataResponse {
+  integration:
+    | {
+        id: string
+        workspace_id: string
+        integration_type: string
+        configured_by: string
+        is_active: boolean
+        created_at: string
+        updated_at: string
+        integration_data: Record<string, unknown> | undefined
+      }
+    | undefined
+  token:
+    | {
+        accessToken?: string
+        expiresAt?: string | undefined
+        status: "valid" | "missing" | "expired" | "invalid"
+        error?: string
+      }
+    | undefined
+  website:
+    | {
+        domain: string
+        url: string
+        id: string | undefined
+      }
+    | undefined
+  designLinks: Array<{
+    id: string
+    website_id: string
+    figma_file_id: string
+    figma_frame_id: string
+    frame_name: string | undefined
+    frame_url: string
+    thumbnail_url: string | undefined
+    created_at: string
+    created_by: string | undefined
+    updated_at: string
+    is_active: boolean | undefined
+  }>
+  preference:
+    | {
+        id: string
+        lastUsedFrameId: string
+        lastUsedFrameName: string | undefined
+        lastUsedFileId: string
+        frameUrl: string | undefined
+        frameImageUrl: string | undefined
+        updatedAt: string
+      }
+    | undefined
+}
+
+async function handleLinearStatusCheckCached(): Promise<{
+  success: boolean
+  data?: LinearStatusResponse
+  error?: string
+}> {
+  return handleLinearStatusCheck()
+}
+
+async function handleFigmaFetchMetadata(data: {
+  websiteUrl?: string | undefined
+}): Promise<{
+  success: boolean
+  data?: FigmaMetadataResponse
+  error?: string
+}> {
+  try {
+    const url = `${PIXZLO_WEB_URL}/api/integrations/figma/metadata${
+      data.websiteUrl
+        ? `?websiteUrl=${encodeURIComponent(data.websiteUrl)}`
+        : ""
+    }`
+
+    const response = await fetch(url, {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include"
+    })
+
+    if (!response.ok) {
+      const errorData = await response
+        .json()
+        .catch(() => ({ error: "Unknown error" }))
+
+      if (response.status === 401) {
+        return {
+          success: false,
+          error: "Please log in to Pixzlo to use this feature."
+        }
+      }
+
+      return {
+        success: false,
+        error: errorData.error || "Failed to fetch Figma metadata"
+      }
+    }
+
+    const result = (await response.json()) as {
+      success: boolean
+      data?: FigmaMetadataResponse
+      error?: string
+    }
+
+    if (!result.success || !result.data) {
+      return {
+        success: false,
+        error: result.error || "Failed to fetch Figma metadata"
+      }
+    }
+
+    // Cache metadata (including decrypted token) for subsequent token requests
+    figmaMetadataCache.data = result.data
+    figmaMetadataCache.expiresAt = new Date(Date.now() + 5 * 60 * 1000)
+
+    return {
+      success: true,
+      data: result.data
+    }
+  } catch (error) {
+    console.error("❌ Figma metadata fetch error:", error)
+    return {
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Failed to fetch Figma metadata"
+    }
+  }
+}
+
+async function handleFigmaUpdatePreference(data: {
+  websiteUrl: string
+  frameId: string
+  frameName?: string
+  fileId?: string
+  frameUrl?: string
+  frameImageUrl?: string
+}): Promise<{
+  success: boolean
+  data?: FigmaMetadataResponse
+  error?: string
+}> {
+  try {
+    const response = await fetch(
+      `${PIXZLO_WEB_URL}/api/integrations/figma/preferences`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        credentials: "include",
+        body: JSON.stringify(data)
+      }
+    )
+
+    if (!response.ok) {
+      const errorData = await response
+        .json()
+        .catch(() => ({ error: "Unknown error" }))
+
+      if (response.status === 401) {
+        return {
+          success: false,
+          error: "Please log in to Pixzlo to use this feature."
+        }
+      }
+
+      return {
+        success: false,
+        error: errorData.error || "Failed to update Figma preference"
+      }
+    }
+
+    // After updating the preference retrieve metadata again
+    return handleFigmaFetchMetadata({ websiteUrl: data.websiteUrl })
+  } catch (error) {
+    console.error("❌ Figma preference update error:", error)
+    return {
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Failed to update Figma preference"
+    }
+  }
+}
+
+async function handleFigmaCreateDesignLink(data: {
+  websiteUrl?: string | undefined
+  linkData: {
+    figma_file_id: string
+    figma_frame_id: string
+    frame_name?: string
+    frame_url: string
+    thumbnail_url?: string
+  }
+}): Promise<{
+  success: boolean
+  data?: FigmaMetadataResponse
+  error?: string
+}> {
+  try {
+    const websiteUrl = data.websiteUrl ?? window.location.href
+    const url = `${PIXZLO_WEB_URL}/api/websites/figma-links`
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        websiteUrl,
+        ...data.linkData
+      })
+    })
+
+    if (!response.ok) {
+      const errorData = await response
+        .json()
+        .catch(() => ({ error: "Unknown error" }))
+
+      if (response.status === 401) {
+        return {
+          success: false,
+          error: "Please log in to Pixzlo to use this feature."
+        }
+      }
+
+      return {
+        success: false,
+        error: errorData.error || "Failed to create Figma design link"
+      }
+    }
+
+    return handleFigmaFetchMetadata({ websiteUrl })
+  } catch (error) {
+    console.error("❌ Figma create design link error:", error)
+    return {
+      success: false,
+      error:
+        error instanceof Error ? error.message : "Failed to create design link"
+    }
+  }
+}
+
+async function handleFigmaDeleteDesignLink(data: {
+  websiteUrl?: string | undefined
+  linkId: string
+}): Promise<{
+  success: boolean
+  data?: FigmaMetadataResponse
+  error?: string
+}> {
+  try {
+    const websiteUrl = data.websiteUrl ?? window.location.href
+    const url = `${PIXZLO_WEB_URL}/api/websites/figma-links/${data.linkId}`
+
+    const response = await fetch(url, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include"
+    })
+
+    if (!response.ok) {
+      const errorData = await response
+        .json()
+        .catch(() => ({ error: "Unknown error" }))
+
+      if (response.status === 401) {
+        return {
+          success: false,
+          error: "Please log in to Pixzlo to use this feature."
+        }
+      }
+
+      return {
+        success: false,
+        error: errorData.error || "Failed to delete Figma design link"
+      }
+    }
+
+    return handleFigmaFetchMetadata({ websiteUrl })
+  } catch (error) {
+    console.error("❌ Figma delete design link error:", error)
+    return {
+      success: false,
+      error:
+        error instanceof Error ? error.message : "Failed to delete design link"
     }
   }
 }
@@ -574,7 +1179,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   // Handle Linear integration status check
   if (message.type === "linear-check-status") {
-    handleLinearStatusCheck()
+    handleLinearStatusCheckCached()
       .then(sendResponse)
       .catch((error) => {
         console.error("❌ Linear status check failed:", error)
@@ -600,18 +1205,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true // Keep message channel open for async response
   }
 
-  // Handle Linear options fetch
+  // Handle Linear metadata fetch (legacy alias)
   if (message.type === "linear-fetch-options") {
-    handleLinearFetchOptions()
+    handleLinearFetchMetadata()
       .then(sendResponse)
       .catch((error) => {
-        console.error("❌ Linear options fetch failed:", error)
+        console.error("❌ Linear metadata fetch failed:", error)
         sendResponse({
           success: false,
           error: error instanceof Error ? error.message : "Unknown error"
         })
       })
     return true // Keep message channel open for async response
+  }
+
+  if (message.type === "linear-fetch-metadata") {
+    handleLinearFetchMetadata()
+      .then(sendResponse)
+      .catch((error) => {
+        console.error("❌ Linear metadata fetch failed:", error)
+        sendResponse({
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error"
+        })
+      })
+    return true
   }
   if (message.type === "FIGMA_API_CALL") {
     console.log("Background script - Figma API call requested:", message.method)
@@ -622,8 +1240,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       // Get decrypted token from backend, then call Figma API directly
       console.log("Background script - Getting decrypted Figma token...")
 
-      getCachedToken()
-        .then(async (tokenData) => {
+      getFigmaAccessToken()
+        .then(async (accessToken) => {
           console.log(
             "Background script - Got token, calling Figma API directly..."
           )
@@ -632,27 +1250,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           const figmaUrl = `https://api.figma.com/v1/files/${fileId}?version=${cacheBust}`
 
           console.log("Background script - Figma API URL:", figmaUrl)
-          console.log(
-            "Background script - Token available:",
-            !!tokenData.access_token
-          )
-          console.log(
-            "Background script - Token preview:",
-            tokenData.access_token
-              ? tokenData.access_token.substring(0, 10) +
-                  "..." +
-                  tokenData.access_token.substring(
-                    tokenData.access_token.length - 5
-                  )
-              : "NO TOKEN"
-          )
+          console.log("Background script - Token available:", !!accessToken)
 
           // Validate token with Figma API (same as working Python script)
           console.log("Background script - Validating Figma token...")
 
           return fetch("https://api.figma.com/v1/me", {
             headers: {
-              Authorization: `Bearer ${tokenData.access_token}`
+              Authorization: `Bearer ${accessToken}`
             }
           }).then(async (validateResponse) => {
             if (validateResponse.ok) {
@@ -676,7 +1281,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
             return fetch(figmaUrl, {
               headers: {
-                Authorization: `Bearer ${tokenData.access_token}`,
+                Authorization: `Bearer ${accessToken}`,
                 "Cache-Control": "no-cache, no-store, must-revalidate",
                 Pragma: "no-cache",
                 Expires: "0"
@@ -752,86 +1357,147 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       `Background script - Extracted fileId: ${fileId}, nodeId: ${nodeId}`
     )
 
-    // Get token first
-    getCachedToken()
-      .then(async (tokenData) => {
-        // Get file data first to find the frame and its elements
-        console.log("Background script - Getting file data for frame...")
-        return fetch(`https://api.figma.com/v1/files/${fileId}`, {
-          headers: {
-            Authorization: `Bearer ${tokenData.access_token}`
-          }
-        }).then(async (fileResponse) => {
-          if (!fileResponse.ok) {
-            throw new Error(`File access failed: ${fileResponse.status}`)
-          }
-          const figmaData = await fileResponse.json()
+    if (!nodeId) {
+      sendResponse({
+        success: false,
+        error: "Invalid Figma URL. Missing node ID."
+      })
+      return true
+    }
 
-          // Find the specific frame/node
-          const frameData = findNodeById(figmaData, nodeId)
-          if (!frameData) {
-            throw new Error(`Frame with node-id ${nodeId} not found in file`)
-          }
+    const cacheKey = `${fileId}:${nodeId}`
+    const cachedFrame = frameRenderResultCache.get(cacheKey)
+    const now = Date.now()
 
-          console.log("Background script - Found frame:", frameData.name)
-
-          // Extract all elements from the frame
-          const elements = extractElementsFromNode(frameData, nodeId)
-          console.log(
-            `Background script - Found ${elements.length} elements in frame`
-          )
-
-          // 🔍 DEBUG: Log frameData before sending to frontend
-          console.log("🔍 BACKGROUND: frameData being sent to frontend:", {
-            id: frameData.id,
-            name: frameData.name,
-            type: frameData.type,
-            hasAbsoluteBoundingBox: !!frameData.absoluteBoundingBox
+    if (cachedFrame) {
+      if (cachedFrame.expiresAt > now) {
+        console.log(
+          "Background script - Using cached frame render result for:",
+          cacheKey
+        )
+        try {
+          sendResponse({
+            success: true,
+            data: cachedFrame.data
           })
+          console.log("✅ BACKGROUND: Response sent successfully (cached)")
+        } catch (error) {
+          console.error("❌ BACKGROUND: Error sending cached response:", error)
+        }
+        return true
+      }
 
-          // Render the frame as an image
-          console.log("🔍 BACKGROUND: Starting to render frame image...")
-          const imageUrl = await renderFigmaNode(
-            fileId,
-            nodeId,
-            tokenData.access_token
-          )
-          console.log("🔍 BACKGROUND: Frame image rendered, URL:", imageUrl)
+      frameRenderResultCache.delete(cacheKey)
+    }
 
-          const responseData = {
-            fileId: fileId,
-            nodeId: nodeId,
-            frameData: frameData,
-            elements: elements,
-            imageUrl: imageUrl,
-            fileName: figmaData.name
-          }
+    let frameRequest = inFlightFrameRenderRequests.get(cacheKey)
 
-          console.log(
-            "🔍 BACKGROUND: Sending complete response with imageUrl:",
-            {
-              hasImageUrl: !!responseData.imageUrl,
-              imageUrlLength: responseData.imageUrl?.length || 0
+    if (frameRequest) {
+      console.log(
+        "Background script - Reusing in-flight frame render for:",
+        cacheKey
+      )
+    } else {
+      frameRequest = (async () => {
+        const accessToken = await getFigmaAccessToken()
+
+        console.log("Background script - Getting file data for frame...")
+        const fileResponse = await fetch(
+          `https://api.figma.com/v1/files/${fileId}`,
+          {
+            headers: {
+              Authorization: `Bearer ${accessToken}`
             }
-          )
-
-          try {
-            sendResponse({
-              success: true,
-              data: responseData
-            })
-            console.log("✅ BACKGROUND: Response sent successfully")
-          } catch (error) {
-            console.error("❌ BACKGROUND: Error sending response:", error)
           }
+        )
+
+        if (!fileResponse.ok) {
+          throw new Error(`File access failed: ${fileResponse.status}`)
+        }
+
+        const figmaData = await fileResponse.json()
+
+        // Find the specific frame/node
+        const frameData = findNodeById(figmaData, nodeId)
+        if (!frameData) {
+          throw new Error(`Frame with node-id ${nodeId} not found in file`)
+        }
+
+        console.log("Background script - Found frame:", frameData.name)
+
+        // Extract all elements from the frame
+        const elements = extractElementsFromNode(frameData, nodeId)
+        console.log(
+          `Background script - Found ${elements.length} elements in frame`
+        )
+
+        // 🔍 DEBUG: Log frameData before sending to frontend
+        console.log("🔍 BACKGROUND: frameData being sent to frontend:", {
+          id: frameData.id,
+          name: frameData.name,
+          type: frameData.type,
+          hasAbsoluteBoundingBox: !!frameData.absoluteBoundingBox
         })
+
+        // Render the frame as an image
+        console.log("🔍 BACKGROUND: Starting to render frame image...")
+        const imageUrl = await renderFigmaNode(fileId, nodeId, accessToken)
+        console.log("🔍 BACKGROUND: Frame image rendered, URL:", imageUrl)
+
+        const responseData: FrameRenderResponse = {
+          fileId,
+          nodeId,
+          frameData,
+          elements,
+          imageUrl,
+          fileName: figmaData.name
+        }
+
+        console.log("🔍 BACKGROUND: Sending complete response with imageUrl:", {
+          hasImageUrl: !!responseData.imageUrl,
+          imageUrlLength: responseData.imageUrl?.length || 0
+        })
+
+        frameRenderResultCache.set(cacheKey, {
+          data: responseData,
+          expiresAt: Date.now() + FRAME_RENDER_CACHE_TTL
+        })
+
+        return responseData
+      })()
+
+      inFlightFrameRenderRequests.set(cacheKey, frameRequest)
+    }
+
+    frameRequest
+      .then((responseData) => {
+        try {
+          sendResponse({
+            success: true,
+            data: responseData
+          })
+          console.log("✅ BACKGROUND: Response sent successfully")
+        } catch (error) {
+          console.error("❌ BACKGROUND: Error sending response:", error)
+        }
       })
       .catch((error) => {
+        frameRenderResultCache.delete(cacheKey)
         console.error("Background script - Frame render error:", error)
-        sendResponse({
-          success: false,
-          error: error.message || "Failed to render Figma frame"
-        })
+        try {
+          sendResponse({
+            success: false,
+            error: error.message || "Failed to render Figma frame"
+          })
+        } catch (sendError) {
+          console.error(
+            "❌ BACKGROUND: Error sending failure response:",
+            sendError
+          )
+        }
+      })
+      .finally(() => {
+        inFlightFrameRenderRequests.delete(cacheKey)
       })
 
     return true
@@ -859,15 +1525,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 
     // Get token and render element
-    getCachedToken()
-      .then(async (tokenData) => {
+    getFigmaAccessToken()
+      .then(async (accessToken) => {
         console.log(`Background script - Rendering element ${nodeId}`)
 
-        const imageUrl = await renderFigmaNode(
-          fileId,
-          nodeId,
-          tokenData.access_token
-        )
+        const imageUrl = await renderFigmaNode(fileId, nodeId, accessToken)
         console.log("Background script - Got element image URL:", imageUrl)
 
         sendResponse({
@@ -944,29 +1606,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const { fileId, nodeId } = message
 
     // Get token and fetch image
-    getCachedToken()
-      .then(async (tokenData) => {
-        if (tokenData.expires_at) {
-          const expirationDate = new Date(tokenData.expires_at)
-          const now = new Date()
-          if (expirationDate <= now) {
-            throw new Error(
-              "Figma token has expired. Please reconnect your Figma integration."
-            )
-          }
-        }
-
+    getFigmaAccessToken()
+      .then(async (accessToken) => {
         // Use the helper function to render Figma node as image (like reviewit)
         console.log(
           `Background script - Rendering Figma node ${nodeId} from file ${fileId}`
         )
 
         try {
-          const imageUrl = await renderFigmaNode(
-            fileId,
-            nodeId,
-            tokenData.access_token
-          )
+          const imageUrl = await renderFigmaNode(fileId, nodeId, accessToken)
           console.log("Background script - Got Figma node image URL:", imageUrl)
 
           sendResponse({
@@ -1062,9 +1710,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                   changeInfo.url &&
                   tab.url
                 ) {
-                  // Check if this is the callback URL (localhost:3000 or pixzlo.com /settings/integrations)
+                  // Check if this is the callback URL (PIXZLO_WEB_URL or pixzlo.com /settings/integrations)
                   if (
-                    (tab.url.includes("localhost:3000/settings/integrations") ||
+                    (tab.url.includes(
+                      `${PIXZLO_WEB_URL}/settings/integrations`
+                    ) ||
                       tab.url.includes("pixzlo.com/settings/integrations")) &&
                     (tab.url.includes("success=") || tab.url.includes("error="))
                   ) {
@@ -1205,7 +1855,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     ;(async () => {
       try {
         const payload = message.payload || {}
+        console.log(
+          "📡 Using batch create endpoint for faster issue creation..."
+        )
 
+        // Helper functions
         const sanitizeDim = (value) => {
           if (!value || typeof value !== "string") return undefined
           return value
@@ -1215,25 +1869,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             .replace(/[^0-9x]/g, "")
         }
 
-        const parseDeviceInfo = (value) => {
-          if (!value || typeof value !== "string") return undefined
-          const parts = value.split(":").map((s) => s.trim())
-          if (parts.length === 2) {
-            return { device: parts[0], os: parts[1] }
-          }
-          return { device: value, os: "" }
-        }
-
         const parseBrowserInfo = (browserInfo) => {
           if (!browserInfo) return undefined
-          return {
-            name: browserInfo.name || "Unknown",
-            version: browserInfo.version || "Unknown",
-            userAgent: browserInfo.userAgent || navigator.userAgent
-          }
+          const name = browserInfo.name || "Unknown"
+          const version = browserInfo.version || "Unknown"
+          return `${name} ${version}`
         }
 
-        // Resolve workspace from profile
+        // Get workspace ID
         const profileRes = await fetch(`${PIXZLO_WEB_URL}/api/user/profile`, {
           method: "GET",
           credentials: "include"
@@ -1250,74 +1893,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           workspaces[0]?.id || workspaces[0]?.workspace_id || workspaces[0]
         if (!workspaceId) throw new Error("Workspace ID missing")
 
-        // Ensure website exists
+        // Prepare batch create request
         const websiteUrl = payload?.metadata?.url
-        let websiteId = undefined
-        if (websiteUrl) {
-          const encoded = encodeURIComponent(websiteUrl)
-          const getWebsites = await fetch(
-            `${PIXZLO_WEB_URL}/api/websites?url=${encoded}`,
-            { credentials: "include" }
-          )
-          if (!getWebsites.ok) {
-            throw new Error(`Websites query failed: ${getWebsites.status}`)
-          }
-          const websitesJson = await getWebsites.json()
-          const firstWebsite = Array.isArray(websitesJson.websites)
-            ? websitesJson.websites[0]
-            : undefined
-          if (firstWebsite?.id) {
-            websiteId = firstWebsite.id
-          } else {
-            // Try to fetch website metadata (name, description, favicon)
-            let meta = null
-            try {
-              const metaRes = await fetch(
-                `${PIXZLO_WEB_URL}/api/websites/metadata?url=${encoded}`,
-                { credentials: "include" }
-              )
-              if (metaRes.ok) {
-                const metaJson = await metaRes.json()
-                meta = metaJson?.metadata || null
-              }
-            } catch (e) {
-              console.warn("Website metadata fetch failed:", e)
-            }
-
-            const nameFromHost = (() => {
-              try {
-                const u = new URL(websiteUrl)
-                return u.hostname
-              } catch {
-                return websiteUrl
-              }
-            })()
-            const createWebsite = await fetch(
-              `${PIXZLO_WEB_URL}/api/websites`,
-              {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                credentials: "include",
-                body: JSON.stringify({
-                  name: meta?.name || nameFromHost,
-                  url: websiteUrl,
-                  description: meta?.description || undefined,
-                  favicon_url: meta?.favicon_url || undefined
-                })
-              }
-            )
-            if (!createWebsite.ok) {
-              const err = await createWebsite.json().catch(() => ({}))
-              throw new Error(
-                `Website create failed: ${createWebsite.status} ${err.error || ""}`
-              )
-            }
-            const created = await createWebsite.json()
-            websiteId = created?.website?.id
-          }
-        }
-
-        // Build and create the issue
         const title = (payload.title || "Untitled issue").slice(0, 200)
         const description = payload.description || ""
         const hasDesign = !!payload?.figma?.figmaUrl
@@ -1327,104 +1904,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             (payload?.isElementCapture ? "comparison" : "screenshot")
         const severity = payload.priority || "medium"
 
-        const screenResolution = sanitizeDim(
-          payload?.metadata?.screenResolution
-        )
-        const viewportSize = sanitizeDim(payload?.metadata?.viewportSize)
-        const deviceInfo = parseDeviceInfo(payload?.metadata?.device)
-        const browserInfo = parseBrowserInfo(payload?.browserInfo)
-
-        const createIssueRes = await fetch(`${PIXZLO_WEB_URL}/api/issues`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({
-            workspace_id: workspaceId,
-            title,
-            description,
-            severity,
-            issue_type: issueType,
-            website_id: websiteId,
-            website_url: websiteUrl,
-            figma_link: payload?.figma?.figmaUrl,
-            device_info: deviceInfo,
-            browser_info: browserInfo,
-            screen_resolution: screenResolution,
-            viewport_size: viewportSize
+        // Prepare images array
+        const images = []
+        if (payload?.images?.clean) {
+          images.push({
+            data: payload.images.clean,
+            type: "element",
+            order_index: 0
           })
-        })
-        if (!createIssueRes.ok) {
-          const err = await createIssueRes.json().catch(() => ({}))
-          throw new Error(
-            `Issue create failed: ${createIssueRes.status} ${err.error || err.message || ""}`
-          )
         }
-        const issueJson = await createIssueRes.json()
-        const issue = issueJson.issue || issueJson.data || issueJson
-        const issueId = issue?.id
-        if (!issueId) throw new Error("No issue id returned")
-
-        const uploadIssueImage = async ({
-          dataUrl,
-          imageType,
-          altText,
-          orderIndex
-        }) => {
-          if (!dataUrl) return
-          let blob = null
-          try {
-            if (typeof dataUrl === "string" && dataUrl.startsWith("data:")) {
-              blob = dataUrlToBlob(dataUrl)
-            } else {
-              const res = await fetch(dataUrl, { cache: "no-store" })
-              blob = await res.blob()
-            }
-          } catch (e) {
-            console.warn("Failed to resolve image data:", e)
-            return
-          }
-          if (!blob) return
-          const form = new FormData()
-          form.append(
-            "file",
-            new File([blob], `image-${Date.now()}.png`, {
-              type: blob.type || "image/png"
-            })
-          )
-          form.append("image_type", imageType)
-          if (altText) form.append("alt_text", altText)
-          if (typeof orderIndex === "number")
-            form.append("order_index", String(orderIndex))
-
-          const uploadRes = await fetch(
-            `${PIXZLO_WEB_URL}/api/issues/${issueId}/images`,
-            {
-              method: "POST",
-              credentials: "include",
-              body: form
-            }
-          )
-          if (!uploadRes.ok) {
-            const err = await uploadRes.json().catch(() => ({}))
-            console.warn(
-              `Image upload failed (${imageType}): ${uploadRes.status} ${err.error || ""}`
-            )
-          }
+        if (payload?.images?.annotated) {
+          images.push({
+            data: payload.images.annotated,
+            type: "main",
+            order_index: 1
+          })
         }
 
-        await uploadIssueImage({
-          dataUrl: payload?.images?.clean,
-          imageType: "element",
-          altText: undefined,
-          orderIndex: 0
-        })
-        await uploadIssueImage({
-          dataUrl: payload?.images?.annotated,
-          imageType: "main",
-          altText: undefined,
-          orderIndex: 1
-        })
-
+        // Add Figma image if available
         if (payload?.figma?.imageUrl) {
           try {
             const imgRes = await fetch(payload.figma.imageUrl, {
@@ -1432,130 +1929,91 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             })
             if (imgRes.ok) {
               const blob = await imgRes.blob()
-              const form = new FormData()
-              form.append(
-                "file",
-                new File([blob], `figma-${Date.now()}.png`, {
-                  type: blob.type || "image/png"
-                })
-              )
-              form.append("image_type", "figma")
-              const uploadRes = await fetch(
-                `${PIXZLO_WEB_URL}/api/issues/${issueId}/images`,
-                {
-                  method: "POST",
-                  credentials: "include",
-                  body: form
-                }
-              )
-              if (!uploadRes.ok) {
-                const err = await uploadRes.json().catch(() => ({}))
-                console.warn(
-                  `Figma image upload failed: ${uploadRes.status} ${err.error || ""}`
-                )
-              }
+              const reader = new FileReader()
+              const base64Promise = new Promise((resolve) => {
+                reader.onloadend = () => resolve(reader.result)
+                reader.readAsDataURL(blob)
+              })
+              const base64 = await base64Promise
+              images.push({
+                data: base64,
+                type: "figma",
+                order_index: 2
+              })
             }
           } catch (e) {
-            console.warn("Failed to fetch/upload figma image:", e)
+            console.warn("Failed to fetch Figma image:", e)
           }
         }
 
-        // Upload CSS styles comparison data if available
-        if (
-          payload?.cssStyles &&
-          Array.isArray(payload.cssStyles) &&
-          payload.cssStyles.length > 0
-        ) {
-          try {
-            const stylesRes = await fetch(
-              `${PIXZLO_WEB_URL}/api/issues/${issueId}/styles`,
-              {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                credentials: "include",
-                body: JSON.stringify({
-                  styles: payload.cssStyles
-                })
-              }
-            )
-            if (!stylesRes.ok) {
-              const err = await stylesRes.json().catch(() => ({}))
-              console.warn(
-                `CSS styles upload failed: ${stylesRes.status} ${err.error || ""}`
-              )
-            } else {
-              console.log(
-                `Uploaded ${payload.cssStyles.length} CSS style comparisons`
-              )
-            }
-          } catch (e) {
-            console.warn("Failed to upload CSS styles:", e)
-          }
-        }
-
-        if (
-          websiteId &&
-          payload?.figma?.fileId &&
-          payload?.figma?.frameId &&
-          payload?.figma?.figmaUrl
-        ) {
-          try {
-            // Ensure frame name exists by fetching from Figma if missing
-            let frameName = payload.figma.frameName || undefined
-            if (!frameName) {
-              try {
-                const tokenRes = await fetch(
-                  `${PIXZLO_WEB_URL}/api/integrations/figma/token`,
-                  { method: "GET", credentials: "include" }
-                )
-                if (tokenRes.ok) {
-                  const tokenData = await tokenRes.json()
-                  const fileRes = await fetch(
-                    `https://api.figma.com/v1/files/${payload.figma.fileId}`,
-                    {
-                      headers: {
-                        Authorization: `Bearer ${tokenData.access_token}`
-                      }
-                    }
-                  )
-                  if (fileRes.ok) {
-                    const fileJson = await fileRes.json()
-                    const frame = findNodeById(fileJson, payload.figma.frameId)
-                    if (frame && frame.name) frameName = frame.name
-                  }
-                }
-              } catch (e) {
-                console.warn("Failed to fetch frame name from Figma:", e)
-              }
-            }
-
-            const linkRes = await fetch(
-              `${PIXZLO_WEB_URL}/api/websites/${websiteId}/figma-links`,
-              {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                credentials: "include",
-                body: JSON.stringify({
+        // Prepare batch create body
+        const batchBody = {
+          workspace_id: workspaceId,
+          title,
+          description,
+          severity,
+          issue_type: issueType,
+          website_url: websiteUrl,
+          figma_link: payload?.figma?.figmaUrl,
+          device_info: payload?.metadata?.device,
+          browser_info: parseBrowserInfo(payload?.browserInfo),
+          screen_resolution: sanitizeDim(payload?.metadata?.screenResolution),
+          viewport_size: sanitizeDim(payload?.metadata?.viewportSize),
+          images: images.length > 0 ? images : undefined,
+          css_styles: payload?.cssStyles || undefined,
+          figma_link_data:
+            payload?.figma?.fileId && payload?.figma?.frameId
+              ? {
                   figma_file_id: payload.figma.fileId,
                   figma_frame_id: payload.figma.frameId,
-                  frame_name: frameName || undefined,
+                  frame_name: payload.figma.frameName,
                   frame_url: payload.figma.figmaUrl,
-                  thumbnail_url: payload.figma.thumbnailUrl || undefined
-                })
+                  thumbnail_url: payload.figma.thumbnailUrl
+                }
+              : undefined,
+          linear_enabled: payload?.linearEnabled || false,
+          linear_options: payload?.linearOptions
+            ? {
+                teamId: payload.linearOptions.teams?.id,
+                projectId: payload.linearOptions.projects?.id,
+                assigneeId: payload.linearOptions.users?.id,
+                stateId: payload.linearOptions.workflowStates?.id
               }
-            )
-            if (!linkRes.ok) {
-              const err = await linkRes.json().catch(() => ({}))
-              console.warn(
-                `Figma link create failed: ${linkRes.status} ${err.error || ""}`
-              )
-            }
-          } catch (e) {
-            console.warn("Failed to create figma link:", e)
-          }
+            : undefined
         }
 
-        const issueUrl = `${PIXZLO_WEB_URL}/issues/${issueId}`
+        console.log("📤 Sending batch create request...")
+        console.log("🔍 Batch body:", JSON.stringify(batchBody, null, 2))
+        console.log("🔍 Figma link data:", batchBody.figma_link_data)
+        console.log("🔍 Linear options:", batchBody.linear_options)
+
+        // Single batch create call
+        const batchRes = await fetch(
+          `${PIXZLO_WEB_URL}/api/issues/batch-create`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify(batchBody)
+          }
+        )
+
+        if (!batchRes.ok) {
+          const err = await batchRes.json().catch(() => ({}))
+          throw new Error(
+            `Batch create failed: ${batchRes.status} ${err.error || ""}`
+          )
+        }
+
+        const batchResult = await batchRes.json()
+        const issueId = batchResult?.data?.issueId
+        const issueUrl = batchResult?.data?.issueUrl
+
+        if (!issueId) {
+          throw new Error("No issue ID returned from batch create")
+        }
+
+        console.log("✅ Issue created successfully:", issueUrl)
         sendResponse({ success: true, data: { issueId, issueUrl } })
       } catch (error) {
         console.error("Background script - SUBMIT_ISSUE error:", error)
@@ -1565,6 +2023,101 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         })
       }
     })()
+    return true
+  }
+
+  // Handle Figma preference fetch
+  if (message.type === "figma-fetch-preference") {
+    handleFigmaFetchPreference(message.data)
+      .then(sendResponse)
+      .catch((error) => {
+        console.error("❌ Figma preference fetch failed:", error)
+        sendResponse({
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error"
+        })
+      })
+    return true // Keep message channel open for async response
+  }
+
+  // Handle Figma preference update
+  if (message.type === "figma-update-preference") {
+    handleFigmaUpdatePreference(message.data)
+      .then(sendResponse)
+      .catch((error) => {
+        console.error("❌ Figma preference update failed:", error)
+        sendResponse({
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error"
+        })
+      })
+    return true
+  }
+
+  // Handle Linear preference fetch
+  if (message.type === "linear-fetch-preference") {
+    handleLinearFetchPreference()
+      .then(sendResponse)
+      .catch((error) => {
+        console.error("❌ Linear preference fetch failed:", error)
+        sendResponse({
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error"
+        })
+      })
+    return true // Keep message channel open for async response
+  }
+
+  // Handle Linear preference update
+  if (message.type === "linear-update-preference") {
+    handleLinearUpdatePreference(message.data)
+      .then(sendResponse)
+      .catch((error) => {
+        console.error("❌ Linear preference update failed:", error)
+        sendResponse({
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error"
+        })
+      })
+    return true // Keep message channel open for async response
+  }
+
+  if (message.type === "figma-fetch-metadata") {
+    handleFigmaFetchMetadata(message.data || {})
+      .then(sendResponse)
+      .catch((error) => {
+        console.error("❌ Figma metadata fetch failed:", error)
+        sendResponse({
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error"
+        })
+      })
+    return true
+  }
+
+  if (message.type === "figma-create-design-link") {
+    handleFigmaCreateDesignLink(message.data)
+      .then(sendResponse)
+      .catch((error) => {
+        console.error("❌ Figma design link creation failed:", error)
+        sendResponse({
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error"
+        })
+      })
+    return true
+  }
+
+  if (message.type === "figma-delete-design-link") {
+    handleFigmaDeleteDesignLink(message.data)
+      .then(sendResponse)
+      .catch((error) => {
+        console.error("❌ Figma design link deletion failed:", error)
+        sendResponse({
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error"
+        })
+      })
     return true
   }
 })

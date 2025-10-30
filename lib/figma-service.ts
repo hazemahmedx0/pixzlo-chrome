@@ -1,3 +1,4 @@
+import { PIXZLO_WEB_URL } from "@/lib/constants"
 import type {
   FigmaApiResponse,
   FigmaAuthStatus,
@@ -6,14 +7,35 @@ import type {
   FigmaNode
 } from "@/types/figma"
 
-const PIXZLO_WEB_URL =
-  process.env.NEXT_PUBLIC_BASE_URL ?? "http://localhost:3000"
+interface FigmaMetadata {
+  integration: FigmaAuthStatus["integration"] | null
+  token: {
+    accessToken?: string
+    expiresAt?: string | null
+    status: "valid" | "missing" | "expired" | "invalid"
+    error?: string
+  } | null
+  website: { domain: string; url: string; id: string | null } | null
+  designLinks: FigmaDesignLink[]
+  preference: {
+    id: string
+    lastUsedFrameId: string
+    lastUsedFrameName: string | null
+    lastUsedFileId: string
+    frameUrl: string | null
+    frameImageUrl: string | null
+    updatedAt: string
+  } | null
+}
 
-/**
- * Service for handling Figma API calls through Pixzlo-web backend
- */
 export class FigmaService {
   private static instance: FigmaService
+
+  private cachedMetadata: {
+    websiteUrl: string | null
+    data: FigmaMetadata
+    fetchedAt: number
+  } | null = null
 
   static getInstance(): FigmaService {
     if (!FigmaService.instance) {
@@ -22,65 +44,93 @@ export class FigmaService {
     return FigmaService.instance
   }
 
+  private async callBackground<T>(
+    message: unknown
+  ): Promise<FigmaApiResponse<T>> {
+    return new Promise((resolve) => {
+      chrome.runtime.sendMessage(message, (response) => {
+        if (chrome.runtime.lastError) {
+          resolve({
+            success: false,
+            error:
+              chrome.runtime.lastError.message ||
+              "Extension communication error"
+          })
+          return
+        }
+        resolve(response as FigmaApiResponse<T>)
+      })
+    })
+  }
+
   private async makeApiCall<T>(
     endpoint: string,
     options: RequestInit = {}
   ): Promise<FigmaApiResponse<T>> {
-    try {
-      // Use chrome.runtime.sendMessage to make API calls through background script
-      const response = await new Promise<{
-        success: boolean
-        data?: T
-        error?: string
-      }>((resolve) => {
-        chrome.runtime.sendMessage(
-          {
-            type: "API_CALL",
-            endpoint,
-            options: {
-              method: options.method || "GET",
-              headers: {
-                "Content-Type": "application/json",
-                ...options.headers
-              },
-              body: options.body,
-              credentials: "include"
-            }
-          },
-          (response) => {
-            if (chrome.runtime.lastError) {
-              resolve({
-                success: false,
-                error: chrome.runtime.lastError.message || "Extension error"
-              })
-            } else {
-              resolve(response)
-            }
-          }
-        )
-      })
-
-      return response
-    } catch (error) {
-      console.error("API call failed:", error)
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : "Unknown error"
+    return this.callBackground<T>({
+      type: "API_CALL",
+      endpoint,
+      options: {
+        method: options.method || "GET",
+        headers: {
+          "Content-Type": "application/json",
+          ...options.headers
+        },
+        body: options.body,
+        credentials: "include"
       }
-    }
+    })
   }
 
-  /**
-   * Check if user has Figma authentication
-   */
+  async getMetadata(
+    websiteUrl: string | null
+  ): Promise<FigmaApiResponse<FigmaMetadata>> {
+    const cacheValidForMs = 5 * 60 * 1000
+
+    if (
+      this.cachedMetadata &&
+      this.cachedMetadata.websiteUrl === websiteUrl &&
+      Date.now() - this.cachedMetadata.fetchedAt < cacheValidForMs
+    ) {
+      return { success: true, data: this.cachedMetadata.data }
+    }
+
+    const response = await this.callBackground<FigmaMetadata>({
+      type: "figma-fetch-metadata",
+      data: { websiteUrl }
+    })
+
+    if (response.success && response.data) {
+      this.cachedMetadata = {
+        websiteUrl,
+        data: response.data,
+        fetchedAt: Date.now()
+      }
+    }
+
+    return response
+  }
+
+  clearMetadataCache(): void {
+    this.cachedMetadata = null
+  }
+
   async checkAuthStatus(): Promise<FigmaApiResponse<FigmaAuthStatus>> {
+    if (this.cachedMetadata) {
+      return {
+        success: true,
+        data: {
+          connected: Boolean(this.cachedMetadata.data.integration?.is_active),
+          integration: this.cachedMetadata.data.integration ?? undefined
+        }
+      }
+    }
+
     return this.makeApiCall<FigmaAuthStatus>("/api/integrations/figma/status")
   }
 
-  /**
-   * Initiate Figma OAuth flow
-   */
   async initiateAuth(): Promise<FigmaApiResponse<{ authUrl: string }>> {
+    this.clearMetadataCache()
     return this.makeApiCall<{ authUrl: string }>(
       "/api/integrations/figma/auth",
       {
@@ -89,76 +139,47 @@ export class FigmaService {
     )
   }
 
-  /**
-   * Get current website ID from URL
-   */
-  private async getCurrentWebsiteId(): Promise<string | null> {
-    try {
-      const currentUrl = window.location.href
-      const domain = new URL(currentUrl).hostname
-
-      // Make API call to find website by domain/URL
-      const response = await this.makeApiCall<{
-        websites: Array<{ id: string; url: string }>
-      }>(`/api/websites?domain=${encodeURIComponent(domain)}`)
-
-      if (
-        response.success &&
-        response.data &&
-        response.data.websites.length > 0
-      ) {
-        return response.data.websites[0]!.id
-      }
-
-      return null
-    } catch (error) {
-      console.error("Failed to get current website ID:", error)
-      return null
-    }
-  }
-
-  /**
-   * Get Figma design links for current page
-   */
   async getDesignLinksForCurrentPage(): Promise<
     FigmaApiResponse<FigmaDesignLink[]>
   > {
-    const websiteId = await this.getCurrentWebsiteId()
+    const currentUrl = window.location.href
 
-    if (!websiteId) {
+    const metadataResponse = await this.getMetadata(currentUrl)
+    if (!metadataResponse.success || !metadataResponse.data) {
       return {
         success: false,
-        error: "Website not found in workspace"
+        error: metadataResponse.error || "Failed to load Figma metadata"
       }
     }
 
-    const response = await this.makeApiCall<
-      FigmaDesignLink[] | { success?: boolean; figma_links?: FigmaDesignLink[] }
-    >(`/api/websites/${websiteId}/figma-links`)
-
-    if (!response.success) {
-      return response
-    }
-
-    const payload = response.data
-
-    if (Array.isArray(payload)) {
-      return { success: true, data: payload }
-    }
-
-    if (payload && Array.isArray(payload.figma_links)) {
-      return { success: true, data: payload.figma_links }
-    }
-
     return {
-      success: false,
-      error: "Invalid response format from Figma links API"
+      success: true,
+      data: metadataResponse.data.designLinks
     }
   }
 
-  /**
-   * Create a new Figma design link for current page
-   */
+  async refreshMetadataForCurrentPage(): Promise<
+    FigmaApiResponse<FigmaMetadata>
+  > {
+    this.clearMetadataCache()
+    return this.getMetadata(window.location.href)
+  }
+
+  async updatePreference(update: {
+    websiteUrl: string
+    frameId: string
+    frameName?: string
+    fileId?: string
+    frameUrl?: string
+    frameImageUrl?: string
+  }): Promise<FigmaApiResponse<FigmaMetadata>> {
+    this.clearMetadataCache()
+    return this.callBackground<FigmaMetadata>({
+      type: "figma-update-preference",
+      data: update
+    })
+  }
+
   async createDesignLink(linkData: {
     figma_file_id: string
     figma_frame_id: string
@@ -166,135 +187,101 @@ export class FigmaService {
     frame_url: string
     thumbnail_url?: string
   }): Promise<FigmaApiResponse<FigmaDesignLink>> {
-    const websiteId = await this.getCurrentWebsiteId()
+    const currentUrl = window.location.href
 
-    if (!websiteId) {
-      return {
-        success: false,
-        error: "Website not found in workspace"
+    const response = await this.callBackground<FigmaDesignLink>({
+      type: "figma-create-design-link",
+      data: {
+        websiteUrl: currentUrl,
+        linkData
       }
-    }
-
-    const response = await this.makeApiCall<
-      FigmaDesignLink | { success?: boolean; figma_link?: FigmaDesignLink }
-    >(`/api/websites/${websiteId}/figma-links`, {
-      method: "POST",
-      body: JSON.stringify(linkData)
     })
 
-    if (!response.success) {
-      return response
+    if (response.success) {
+      this.clearMetadataCache()
     }
 
-    const payload = response.data
-
-    if (payload && "figma_link" in (payload as any)) {
-      const link = (payload as { figma_link?: FigmaDesignLink }).figma_link
-      if (link) {
-        return { success: true, data: link }
-      }
-    }
-
-    if (payload && !Array.isArray(payload)) {
-      return { success: true, data: payload as FigmaDesignLink }
-    }
-
-    return {
-      success: false,
-      error: "Invalid response when creating Figma link"
-    }
+    return response
   }
 
-  /**
-   * Create a Figma design link directly without website lookup
-   */
   async createDirectDesignLink(linkData: {
     figma_file_id: string
     figma_frame_id: string
     frame_name?: string
     frame_url: string
     thumbnail_url?: string
-  }): Promise<FigmaApiResponse<{ success: boolean; message: string }>> {
-    console.log("🎯 Creating direct Figma design link...")
-
-    // For now, just return success to avoid the website lookup
-    // In a real implementation, this would create the link directly
-    return {
-      success: true,
-      data: {
-        success: true,
-        message: "Design link created successfully"
-      }
-    }
+  }): Promise<FigmaApiResponse<FigmaDesignLink>> {
+    return this.createDesignLink(linkData)
   }
 
-  /**
-   * Delete a Figma design link
-   */
   async deleteDesignLink(linkId: string): Promise<FigmaApiResponse<void>> {
-    const websiteId = await this.getCurrentWebsiteId()
+    const currentUrl = window.location.href
 
-    if (!websiteId) {
+    const response = await this.callBackground<void>({
+      type: "figma-delete-design-link",
+      data: {
+        websiteUrl: currentUrl,
+        linkId
+      }
+    })
+
+    if (response.success) {
+      this.clearMetadataCache()
+    }
+
+    return response
+  }
+
+  async getFigmaFile(fileId: string): Promise<FigmaApiResponse<FigmaFile>> {
+    const metadataResponse = await this.getMetadata(window.location.href)
+    if (!metadataResponse.success || !metadataResponse.data) {
       return {
         success: false,
-        error: "Website not found in workspace"
+        error: metadataResponse.error || "Failed to load Figma metadata"
       }
     }
 
-    return this.makeApiCall<void>(
-      `/api/websites/${websiteId}/figma-links/${linkId}`,
-      {
-        method: "DELETE"
+    const accessToken = metadataResponse.data.token?.accessToken
+    if (!accessToken) {
+      return {
+        success: false,
+        error: metadataResponse.data.token?.error || "Missing Figma token"
       }
-    )
-  }
+    }
 
-  /**
-   * Get Figma file data directly from Figma API via background script
-   */
-  async getFigmaFile(fileId: string): Promise<FigmaApiResponse<FigmaFile>> {
-    console.log("🎯 Fetching Figma file directly via background script...")
+    const cacheBust = Date.now()
+    const figmaUrl = `https://api.figma.com/v1/files/${fileId}?version=${cacheBust}`
 
     try {
-      // Use background script to call Figma API directly
-      const response = await new Promise<{
-        success: boolean
-        data?: FigmaFile
-        error?: string
-      }>((resolve) => {
-        chrome.runtime.sendMessage(
-          {
-            type: "FIGMA_API_CALL",
-            method: "GET_FILE",
-            fileId: fileId
-          },
-          (response) => {
-            if (chrome.runtime.lastError) {
-              resolve({
-                success: false,
-                error: chrome.runtime.lastError.message || "Extension error"
-              })
-            } else {
-              resolve(response || { success: false, error: "No response" })
-            }
-          }
-        )
+      const response = await fetch(figmaUrl, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          Pragma: "no-cache",
+          Expires: "0"
+        }
       })
 
-      return response
+      if (!response.ok) {
+        return {
+          success: false,
+          error: `Failed to fetch Figma file: ${response.status}`
+        }
+      }
+
+      const figmaData = await response.json()
+      return {
+        success: true,
+        data: figmaData as FigmaFile
+      }
     } catch (error) {
-      console.error("❌ Failed to fetch Figma file:", error)
       return {
         success: false,
-        error:
-          error instanceof Error ? error.message : "Failed to fetch Figma file"
+        error: error instanceof Error ? error.message : "Unknown Figma error"
       }
     }
   }
 
-  /**
-   * Get Figma node image directly via background script
-   */
   async getFigmaNodeImage(
     fileId: string,
     nodeId: string,
@@ -303,63 +290,82 @@ export class FigmaService {
       scale?: number
     } = {}
   ): Promise<FigmaApiResponse<{ imageUrl: string }>> {
-    console.log("🎯 Fetching Figma node image via background script...")
-
-    try {
-      const response = await new Promise<{
-        success: boolean
-        data?: { imageUrl: string }
-        error?: string
-      }>((resolve) => {
-        chrome.runtime.sendMessage(
-          {
-            type: "FIGMA_GET_IMAGE",
-            fileId,
-            nodeId,
-            options
-          },
-          (response) => {
-            if (chrome.runtime.lastError) {
-              resolve({
-                success: false,
-                error: chrome.runtime.lastError.message || "Extension error"
-              })
-            } else {
-              resolve(response || { success: false, error: "No response" })
-            }
-          }
-        )
-      })
-
-      return response
-    } catch (error) {
-      console.error("❌ Failed to fetch image:", error)
+    const metadataResponse = await this.getMetadata(window.location.href)
+    if (!metadataResponse.success || !metadataResponse.data) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Failed to fetch image"
+        error: metadataResponse.error || "Failed to load Figma metadata"
+      }
+    }
+
+    const accessToken = metadataResponse.data.token?.accessToken
+    if (!accessToken) {
+      return {
+        success: false,
+        error: metadataResponse.data.token?.error || "Missing Figma token"
+      }
+    }
+
+    const params = new URLSearchParams()
+    params.set("ids", nodeId)
+    if (options.format) {
+      params.set("format", options.format)
+    }
+    if (options.scale) {
+      params.set("scale", options.scale.toString())
+    }
+
+    const imageUrl = `https://api.figma.com/v1/images/${fileId}?${params.toString()}`
+
+    try {
+      const response = await fetch(imageUrl, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          Pragma: "no-cache",
+          Expires: "0"
+        }
+      })
+
+      if (!response.ok) {
+        return {
+          success: false,
+          error: `Failed to fetch Figma image: ${response.status}`
+        }
+      }
+
+      const json = await response.json()
+      const imageResult = json.images?.[nodeId]
+
+      if (!imageResult) {
+        return {
+          success: false,
+          error: "Image URL not found in response"
+        }
+      }
+
+      return {
+        success: true,
+        data: { imageUrl: imageResult as string }
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown Figma error"
       }
     }
   }
 
-  /**
-   * Parse Figma URL to extract file ID and node ID
-   */
   parseFigmaUrl(url: string): { fileId: string; nodeId?: string } | null {
     try {
-      const urlObj = new URL(url)
-
-      // Standard Figma file URL pattern
       const fileMatch = url.match(/figma\.com\/(?:file|design)\/([a-zA-Z0-9]+)/)
-      if (!fileMatch) return null
+      if (!fileMatch) {
+        return null
+      }
 
       const fileId = fileMatch[1]!
-
-      // Check for node ID in URL
-      let nodeId: string | undefined
       const nodeMatch = url.match(/node-id=([^&]+)/)
-      if (nodeMatch) {
-        nodeId = decodeURIComponent(nodeMatch[1]!)
-      }
+      const nodeId = nodeMatch ? decodeURIComponent(nodeMatch[1]!) : undefined
 
       return { fileId, nodeId }
     } catch {
@@ -367,15 +373,7 @@ export class FigmaService {
     }
   }
 
-  /**
-   * Validate Figma URL
-   */
   isValidFigmaUrl(url: string): boolean {
-    console.log("🔍 Validating Figma URL:", url)
-    const parsed = this.parseFigmaUrl(url)
-    console.log("🔍 Parsed result:", parsed)
-    const isValid = parsed !== null
-    console.log("🔍 URL is valid:", isValid)
-    return isValid
+    return this.parseFigmaUrl(url) !== null
   }
 }

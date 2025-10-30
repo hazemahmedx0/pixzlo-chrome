@@ -1,11 +1,12 @@
 import { create } from "zustand"
 
 export interface FigmaFrame {
-  id: string
+  id: string // Database link ID (unique per link, allows duplicate Figma frames)
   name: string
   figmaUrl: string
   imageUrl?: string
   fileId: string
+  figmaFrameId?: string // Actual Figma frame ID (for preference matching)
 }
 
 interface FigmaToolbarState {
@@ -25,6 +26,7 @@ interface FigmaToolbarState {
   // Actions
   setCurrentFrame: (frame: FigmaFrame | null) => void
   setAvailableFrames: (frames: FigmaFrame[]) => void
+  replaceFrames: (frames: FigmaFrame[]) => void
   addFrame: (frame: FigmaFrame) => void
   removeFrame: (frameId: string) => void
   setIsRefreshing: (refreshing: boolean) => void
@@ -32,6 +34,15 @@ interface FigmaToolbarState {
   setIsFrameSelectorOpen: (open: boolean) => void
   refreshFrames: () => Promise<void>
   reset: () => void
+}
+
+function framesAreEqual(a: FigmaFrame[], b: FigmaFrame[]): boolean {
+  if (a === b) return true
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].id !== b[i].id) return false
+  }
+  return true
 }
 
 export const useFigmaToolbarStore = create<FigmaToolbarState>((set, get) => ({
@@ -43,37 +54,78 @@ export const useFigmaToolbarStore = create<FigmaToolbarState>((set, get) => ({
   isFrameSelectorOpen: false,
 
   // Actions
-  setCurrentFrame: (frame) => set({ currentFrame: frame }),
+  setCurrentFrame: (frame) => {
+    const state = get()
+    if (
+      state.currentFrame?.id === frame?.id &&
+      state.currentFrame?.figmaUrl === frame?.figmaUrl
+    ) {
+      return
+    }
+    set({ currentFrame: frame })
+  },
 
-  setAvailableFrames: (frames) =>
+  setAvailableFrames: (frames) => {
+    const state = get()
+    if (framesAreEqual(state.availableFrames, frames)) {
+      return
+    }
+
     set({
       availableFrames: frames,
-      // Auto-select first frame if none selected
-      currentFrame: get().currentFrame || frames[0] || null
-    }),
+      currentFrame: state.currentFrame || frames[0] || null
+    })
+  },
 
-  addFrame: (frame) =>
-    set((state) => ({
+  replaceFrames: (frames) => {
+    const state = get()
+    if (framesAreEqual(state.availableFrames, frames)) {
+      return
+    }
+    set({ availableFrames: frames })
+  },
+
+  addFrame: (frame) => {
+    const state = get()
+    if (state.availableFrames.some((existing) => existing.id === frame.id)) {
+      return
+    }
+    set({
       availableFrames: [...state.availableFrames, frame],
-      currentFrame: state.currentFrame || frame // Auto-select if first frame
-    })),
+      currentFrame: state.currentFrame || frame
+    })
+  },
 
-  removeFrame: (frameId) =>
-    set((state) => {
-      const newFrames = state.availableFrames.filter((f) => f.id !== frameId)
-      const newCurrentFrame =
-        state.currentFrame?.id === frameId
-          ? newFrames[0] || null
-          : state.currentFrame
-      return {
-        availableFrames: newFrames,
-        currentFrame: newCurrentFrame
-      }
-    }),
+  removeFrame: (frameId) => {
+    const state = get()
+    if (!state.availableFrames.some((f) => f.id === frameId)) {
+      return
+    }
 
-  setIsRefreshing: (refreshing) => set({ isRefreshing: refreshing }),
-  setIsAddingFrame: (adding) => set({ isAddingFrame: adding }),
-  setIsFrameSelectorOpen: (open) => set({ isFrameSelectorOpen: open }),
+    const newFrames = state.availableFrames.filter((f) => f.id !== frameId)
+    const newCurrentFrame =
+      state.currentFrame?.id === frameId
+        ? newFrames[0] || null
+        : state.currentFrame
+
+    set({
+      availableFrames: newFrames,
+      currentFrame: newCurrentFrame
+    })
+  },
+
+  setIsRefreshing: (refreshing) => {
+    if (get().isRefreshing === refreshing) return
+    set({ isRefreshing: refreshing })
+  },
+  setIsAddingFrame: (adding) => {
+    if (get().isAddingFrame === adding) return
+    set({ isAddingFrame: adding })
+  },
+  setIsFrameSelectorOpen: (open) => {
+    if (get().isFrameSelectorOpen === open) return
+    set({ isFrameSelectorOpen: open })
+  },
 
   refreshFrames: async () => {
     set({ isRefreshing: true })
@@ -81,7 +133,6 @@ export const useFigmaToolbarStore = create<FigmaToolbarState>((set, get) => ({
       // This would be implemented to fetch fresh frame data
       // For now, just simulate the loading state
       await new Promise((resolve) => setTimeout(resolve, 1000))
-      console.log("🔄 Refreshing frames...")
     } finally {
       set({ isRefreshing: false })
     }

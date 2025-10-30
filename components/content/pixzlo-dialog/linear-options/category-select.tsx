@@ -5,7 +5,7 @@ import {
   SelectTrigger,
   SelectValue
 } from "@/components/ui/select"
-import type { LinearOptionsData } from "@/hooks/use-linear-options"
+import type { LinearOptionsData } from "@/stores/linear-data"
 
 // LinearSelectionState is now defined in this file
 
@@ -34,11 +34,21 @@ export interface LinearSelectionState {
   }
 }
 
+interface LinearPreference {
+  id: string
+  lastUsedTeamId: string | null
+  lastUsedTeamName: string | null
+  lastUsedProjectId: string | null
+  lastUsedProjectName: string | null
+  updatedAt: string
+}
+
 interface CategorySelectProps {
   data: LinearOptionsData
   selections: LinearSelectionState
   onSelect: (category: LinearOptionCategory, optionId: string) => void
   isLoading: boolean
+  preference?: LinearPreference | null
 }
 
 interface CategoryConfig {
@@ -74,65 +84,99 @@ export function CategorySelect({
   data,
   selections,
   onSelect,
-  isLoading
+  isLoading,
+  preference
 }: CategorySelectProps): JSX.Element {
+  // Helper function to check if selection matches preference (only team and project)
+  const isPreferredSelection = (
+    category: LinearOptionCategory,
+    optionId: string
+  ): boolean => {
+    if (!preference) return false
+
+    switch (category) {
+      case "teams":
+        return optionId === preference.lastUsedTeamId
+      case "projects":
+        return optionId === preference.lastUsedProjectId
+      case "users":
+      case "workflowStates":
+        // These are not saved as preferences
+        return false
+      default:
+        return false
+    }
+  }
+
+  // Get filtered options based on selections
+  const getFilteredOptions = (key: LinearOptionCategory): CategoryOption[] => {
+    const allOptions = getOptionsForCategory(data, key)
+
+    // Filter workflow states based on selected team
+    if (key === "workflowStates" && selections.teams?.id) {
+      return allOptions.filter(
+        (option) =>
+          data.workflowStates?.find((state) => state.id === option.id)?.team
+            ?.id === selections.teams?.id
+      )
+    }
+
+    // Filter projects based on selected team (if there's a team property on projects)
+    // For now, return all projects as they may not have team associations
+
+    return allOptions
+  }
+
   return (
     <div className="flex flex-col gap-4">
       {CATEGORIES.map(({ key, label, helper }) => {
-        const options = getOptionsForCategory(data, key)
+        const options = getFilteredOptions(key)
         const selectedId = selections[key]?.id ?? ""
 
         return (
-          <div key={key} className="flex flex-col gap-1.5">
-            <div className="flex items-center justify-between">
+          <div key={key} className="flex flex-col gap-2">
+            <div className="flex min-w-0 flex-1 items-center justify-between">
               <div className="flex flex-col">
-                <span className="text-xs font-medium text-gray-800">
-                  {label}
-                </span>
+                <span className="text-xs font-medium text-gray-800">{label}</span>
                 <span className="text-[11px] text-gray-500">{helper}</span>
               </div>
-              <span className="text-[11px] text-gray-400">
+              <span className="whitespace-nowrap text-[11px] text-gray-400">
                 {options.length} available
               </span>
             </div>
-            <Select
-              value={selectedId}
-              onValueChange={(next) => onSelect(key, next)}
-              disabled={isLoading || options.length === 0}>
-              <SelectTrigger className="h-8 text-xs">
-                <SelectValue
-                  placeholder={
-                    isLoading ? "Loading..." : `Select ${label.toLowerCase()}`
-                  }
-                />
-              </SelectTrigger>
-              <SelectContent position="popper" className="max-h-60 text-xs">
-                {isLoading ? (
-                  <SelectItem value="__loading" disabled>
-                    Loading {label.toLowerCase()}...
-                  </SelectItem>
-                ) : options.length === 0 ? (
-                  <SelectItem value="__empty" disabled>
-                    No {label.toLowerCase()}s available
-                  </SelectItem>
-                ) : (
-                  options.map((option) => (
-                    <SelectItem key={option.id} value={option.id}>
-                      <div className="flex flex-col gap-0.5">
+            <div className="flex items-center">
+              <Select
+                value={selectedId}
+                onValueChange={(next) => onSelect(key, next)}
+                disabled={isLoading || options.length === 0}>
+                <SelectTrigger className="h-8 w-full text-xs">
+                  <SelectValue
+                    placeholder={
+                      isLoading ? "Loading..." : `Select ${label.toLowerCase()}`
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent position="popper" className="max-h-60 text-xs">
+                  {isLoading ? (
+                    <SelectItem value="__loading" disabled>
+                      Loading {label.toLowerCase()}...
+                    </SelectItem>
+                  ) : options.length === 0 ? (
+                    <SelectItem value="__empty" disabled>
+                      No {label.toLowerCase()}s available
+                    </SelectItem>
+                  ) : (
+                    options.map((option) => (
+                      <SelectItem key={option.id} value={option.id}>
                         <span className="font-medium text-gray-700">
                           {option.primary}
                         </span>
-                        {option.secondary ? (
-                          <span className="text-[10px] uppercase tracking-wide text-gray-400">
-                            {option.secondary}
-                          </span>
-                        ) : null}
-                      </div>
-                    </SelectItem>
-                  ))
-                )}
-              </SelectContent>
-            </Select>
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         )
       })}

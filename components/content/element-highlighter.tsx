@@ -6,6 +6,22 @@ interface ElementHighlighterProps {
   onCancel: () => void
 }
 
+interface ElementBoxModel {
+  content: DOMRect
+  padding: {
+    top: number
+    right: number
+    bottom: number
+    left: number
+  }
+  margin: {
+    top: number
+    right: number
+    bottom: number
+    left: number
+  }
+}
+
 const ElementHighlighter = ({
   isActive,
   onElementSelect,
@@ -13,8 +29,11 @@ const ElementHighlighter = ({
 }: ElementHighlighterProps) => {
   const overlayRef = useRef<HTMLDivElement>(null)
   const highlightRef = useRef<HTMLDivElement>(null)
+  const paddingRef = useRef<HTMLDivElement>(null)
+  const marginRef = useRef<HTMLDivElement>(null)
   const currentRect = useRef<DOMRect | null>(null)
   const currentElement = useRef<HTMLElement | null>(null)
+  const currentBoxModel = useRef<ElementBoxModel | null>(null)
 
   // RAF-throttled mouse move to reduce layout thrash on heavy pages
   const rafId = useRef<number | null>(null)
@@ -41,7 +60,9 @@ const ElementHighlighter = ({
     (clientX: number, clientY: number) => {
       const overlay = overlayRef.current
       const highlight = highlightRef.current
-      if (!overlay || !highlight) return
+      const paddingBox = paddingRef.current
+      const marginBox = marginRef.current
+      if (!overlay || !highlight || !paddingBox || !marginBox) return
 
       // Temporarily hide the overlay to perform an accurate hit test
       overlay.style.display = "none"
@@ -60,20 +81,81 @@ const ElementHighlighter = ({
 
       if (!el || el === document.body || el === hostEl) {
         highlight.style.display = "none"
+        paddingBox.style.display = "none"
+        marginBox.style.display = "none"
         currentRect.current = null
         currentElement.current = null
+        currentBoxModel.current = null
         return
       }
 
       const rect = el.getBoundingClientRect()
+      const computedStyle = window.getComputedStyle(el)
+
+      // Get padding values
+      const padding = {
+        top: parseFloat(computedStyle.paddingTop) || 0,
+        right: parseFloat(computedStyle.paddingRight) || 0,
+        bottom: parseFloat(computedStyle.paddingBottom) || 0,
+        left: parseFloat(computedStyle.paddingLeft) || 0
+      }
+
+      // Get margin values
+      const margin = {
+        top: parseFloat(computedStyle.marginTop) || 0,
+        right: parseFloat(computedStyle.marginRight) || 0,
+        bottom: parseFloat(computedStyle.marginBottom) || 0,
+        left: parseFloat(computedStyle.marginLeft) || 0
+      }
+
+      const boxModel: ElementBoxModel = {
+        content: rect,
+        padding,
+        margin
+      }
+
       currentRect.current = rect
       currentElement.current = el
+      currentBoxModel.current = boxModel
 
+      // Content box with blue overlay and thin border
       highlight.style.display = "block"
       highlight.style.left = `${rect.left}px`
       highlight.style.top = `${rect.top}px`
       highlight.style.width = `${rect.width}px`
       highlight.style.height = `${rect.height}px`
+
+      // Padding box (if element has padding)
+      const hasPadding =
+        padding.top > 0 ||
+        padding.right > 0 ||
+        padding.bottom > 0 ||
+        padding.left > 0
+      if (hasPadding) {
+        paddingBox.style.display = "block"
+        paddingBox.style.left = `${rect.left - padding.left}px`
+        paddingBox.style.top = `${rect.top - padding.top}px`
+        paddingBox.style.width = `${rect.width + padding.left + padding.right}px`
+        paddingBox.style.height = `${rect.height + padding.top + padding.bottom}px`
+      } else {
+        paddingBox.style.display = "none"
+      }
+
+      // Margin box (if element has margin)
+      const hasMargin =
+        margin.top > 0 ||
+        margin.right > 0 ||
+        margin.bottom > 0 ||
+        margin.left > 0
+      if (hasMargin) {
+        marginBox.style.display = "block"
+        marginBox.style.left = `${rect.left - padding.left - margin.left}px`
+        marginBox.style.top = `${rect.top - padding.top - margin.top}px`
+        marginBox.style.width = `${rect.width + padding.left + padding.right + margin.left + margin.right}px`
+        marginBox.style.height = `${rect.height + padding.top + padding.bottom + margin.top + margin.bottom}px`
+      } else {
+        marginBox.style.display = "none"
+      }
     },
     []
   )
@@ -203,8 +285,16 @@ const ElementHighlighter = ({
 
       // Clear the hover highlight immediately but preserve element state
       const highlightBox = highlightRef.current
+      const paddingBox = paddingRef.current
+      const marginBox = marginRef.current
       if (highlightBox) {
         highlightBox.style.display = "none"
+      }
+      if (paddingBox) {
+        paddingBox.style.display = "none"
+      }
+      if (marginBox) {
+        marginBox.style.display = "none"
       }
 
       onElementSelect(element, rect)
@@ -307,10 +397,37 @@ const ElementHighlighter = ({
         fontFamily:
           'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif'
       }}>
+      {/* Margin box - outermost, orange/amber color */}
+      <div
+        ref={marginRef}
+        className="pointer-events-none absolute"
+        style={{
+          display: "none",
+          backgroundColor: "rgba(251, 146, 60, 0.15)",
+          border: "0.5px solid rgba(251, 146, 60, 0.6)"
+        }}
+      />
+
+      {/* Padding box - middle layer, green color */}
+      <div
+        ref={paddingRef}
+        className="pointer-events-none absolute"
+        style={{
+          display: "none",
+          backgroundColor: "rgba(34, 197, 94, 0.15)",
+          border: "0.5px solid rgba(34, 197, 94, 0.6)"
+        }}
+      />
+
+      {/* Content box - innermost, blue overlay with thin border */}
       <div
         ref={highlightRef}
-        className="bg-blue-500/20 pointer-events-none absolute border-2 border-blue-500"
-        style={{ display: "none" }}
+        className="pointer-events-none absolute"
+        style={{
+          display: "none",
+          backgroundColor: "rgba(59, 130, 246, 0.1)",
+          border: "0.5px solid rgba(59, 130, 246, 0.8)"
+        }}
       />
 
       {/* Instruction text */}

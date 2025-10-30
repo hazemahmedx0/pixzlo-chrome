@@ -60,6 +60,7 @@ interface PixzloDialogState {
   isFigmaFlowActive: boolean
   figmaDesigns: FigmaDesignLink[]
   figmaDesignsLoading: boolean
+  selectedProperties: Set<string> // Store selected CSS properties
 
   // Actions
   setIsOpen: (isOpen: boolean) => void
@@ -79,6 +80,10 @@ interface PixzloDialogState {
   setIsFigmaFlowActive: (active: boolean) => void
   setFigmaDesigns: (designs: FigmaDesignLink[]) => void
   setFigmaDesignsLoading: (loading: boolean) => void
+  setSelectedProperties: (properties: Set<string>) => void
+  toggleProperty: (propertyName: string) => void
+  toggleSelectAll: () => void
+  resetPropertySelection: () => void
 
   // Complex Actions
   openDialog: (screenshots: Screenshot[], selectedElement?: HTMLElement) => void
@@ -107,6 +112,7 @@ export const usePixzloDialogStore = create<PixzloDialogState>((set, get) => ({
   isFigmaFlowActive: false,
   figmaDesigns: [],
   figmaDesignsLoading: false,
+  selectedProperties: new Set<string>(), // All properties selected by default
 
   // Basic Setters
   setIsOpen: (isOpen: boolean) => set({ isOpen }),
@@ -133,6 +139,39 @@ export const usePixzloDialogStore = create<PixzloDialogState>((set, get) => ({
   setFigmaDesigns: (figmaDesigns: FigmaDesignLink[]) => set({ figmaDesigns }),
   setFigmaDesignsLoading: (figmaDesignsLoading: boolean) =>
     set({ figmaDesignsLoading }),
+  setSelectedProperties: (selectedProperties: Set<string>) =>
+    set({ selectedProperties }),
+  toggleProperty: (propertyName: string) => {
+    const currentSelected = get().selectedProperties
+    const newSelected = new Set(currentSelected)
+    if (newSelected.has(propertyName)) {
+      newSelected.delete(propertyName)
+    } else {
+      newSelected.add(propertyName)
+    }
+    set({ selectedProperties: newSelected })
+  },
+  toggleSelectAll: () => {
+    const state = get()
+    const allProperties =
+      state.extractedCSS?.properties.map((p) => p.name) || []
+    const currentSelected = state.selectedProperties
+    const allSelected = allProperties.every((name) => currentSelected.has(name))
+
+    if (allSelected) {
+      // Deselect all
+      set({ selectedProperties: new Set<string>() })
+    } else {
+      // Select all
+      set({ selectedProperties: new Set(allProperties) })
+    }
+  },
+  resetPropertySelection: () => {
+    const state = get()
+    const allProperties =
+      state.extractedCSS?.properties.map((p) => p.name) || []
+    set({ selectedProperties: new Set(allProperties) })
+  },
 
   // Complex Actions
   openDialog: (screenshots: Screenshot[], selectedElement?: HTMLElement) => {
@@ -155,6 +194,11 @@ export const usePixzloDialogStore = create<PixzloDialogState>((set, get) => ({
     })
 
     console.log("✅ Store state updated - dialog should be open")
+
+    // Initialize all properties as selected after a short delay to ensure extractedCSS is set
+    setTimeout(() => {
+      get().resetPropertySelection()
+    }, 100)
   },
 
   setCompositeImageUrl: (originalUrl: string, compositeUrl: string) => {
@@ -183,7 +227,8 @@ export const usePixzloDialogStore = create<PixzloDialogState>((set, get) => ({
       isFigmaPopupOpen: false,
       isFigmaFlowActive: false,
       figmaDesigns: [],
-      figmaDesignsLoading: false
+      figmaDesignsLoading: false,
+      selectedProperties: new Set<string>()
     })
   },
 

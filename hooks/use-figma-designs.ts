@@ -1,12 +1,12 @@
-import { FigmaService } from "@/lib/figma-service"
-import { usePixzloDialogStore } from "@/stores/pixzlo-dialog"
+import { useFigmaDataStore } from "@/stores/figma-data"
 import type { FigmaDesignLink } from "@/types/figma"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useMemo } from "react"
 
 interface UseFigmaDesignsReturn {
   designs: FigmaDesignLink[]
   isLoading: boolean
-  error: string | null
+  error: string | undefined
+  lastFetchedAt: number | undefined
   refreshDesigns: () => Promise<void>
   createDesignLink: (linkData: {
     figma_file_id: string
@@ -19,119 +19,51 @@ interface UseFigmaDesignsReturn {
   hasDesigns: boolean
 }
 
-/**
- * Hook for managing Figma design links for the current page
- */
 export function useFigmaDesigns(): UseFigmaDesignsReturn {
-  const [error, setError] = useState<string | null>(null)
-
-  const designs = usePixzloDialogStore((state) => state.figmaDesigns)
-  const figmaDesignsLoading = usePixzloDialogStore(
-    (state) => state.figmaDesignsLoading
-  )
-  const setFigmaDesigns = usePixzloDialogStore((state) => state.setFigmaDesigns)
-  const setFigmaDesignsLoading = usePixzloDialogStore(
-    (state) => state.setFigmaDesignsLoading
-  )
-
-  const figmaService = FigmaService.getInstance()
+  const {
+    metadata,
+    isLoadingMetadata,
+    metadataError,
+    metadataLastFetched,
+    fetchMetadata,
+    createDesignLink,
+    deleteDesignLink
+  } = useFigmaDataStore()
 
   const refreshDesigns = useCallback(async (): Promise<void> => {
-    setFigmaDesignsLoading(true)
-    setError(null)
+    await fetchMetadata()
+  }, [fetchMetadata])
 
-    try {
-      const response = await figmaService.getDesignLinksForCurrentPage()
+  const preferredFrameId = metadata.preference?.lastUsedFrameId ?? null
 
-      if (response.success) {
-        const links = response.data
-        if (Array.isArray(links)) {
-          setFigmaDesigns(links)
-        } else {
-          setError("Failed to fetch design links")
-          setFigmaDesigns([])
-        }
-      } else {
-        setError(response.error || "Failed to fetch design links")
-        setFigmaDesigns([])
-      }
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "Unknown error"
-      setError(errorMessage)
-      setFigmaDesigns([])
-    } finally {
-      setFigmaDesignsLoading(false)
+  const orderedDesigns = useMemo(() => {
+    if (!preferredFrameId) {
+      return metadata.designLinks
     }
-  }, [figmaService, setFigmaDesigns, setFigmaDesignsLoading])
 
-  const createDesignLink = useCallback(
-    async (linkData: {
-      figma_file_id: string
-      figma_frame_id: string
-      frame_name?: string
-      frame_url: string
-      thumbnail_url?: string
-    }): Promise<boolean> => {
-      try {
-        setError(null)
-        const response = await figmaService.createDesignLink(linkData)
+    const preferredIndex = metadata.designLinks.findIndex(
+      (design) => design.figma_frame_id === preferredFrameId
+    )
 
-        if (response.success && response.data) {
-          const current = usePixzloDialogStore
-            .getState()
-            .figmaDesigns.filter((design) => design.id !== response.data!.id)
-          setFigmaDesigns([response.data!, ...current])
-          return true
-        } else {
-          setError(response.error || "Failed to create design link")
-          return false
-        }
-      } catch (err) {
-        const errorMessage =
-          err instanceof Error ? err.message : "Unknown error"
-        setError(errorMessage)
-        return false
-      }
-    },
-    [figmaService, setFigmaDesigns]
-  )
+    if (preferredIndex <= 0) {
+      return metadata.designLinks
+    }
 
-  const deleteDesignLink = useCallback(
-    async (linkId: string): Promise<boolean> => {
-      try {
-        setError(null)
-        const response = await figmaService.deleteDesignLink(linkId)
+    const preferredDesign = metadata.designLinks[preferredIndex]
+    return [
+      preferredDesign,
+      ...metadata.designLinks.slice(0, preferredIndex),
+      ...metadata.designLinks.slice(preferredIndex + 1)
+    ]
+  }, [metadata.designLinks, preferredFrameId])
 
-        if (response.success) {
-          const current = usePixzloDialogStore
-            .getState()
-            .figmaDesigns.filter((design) => design.id !== linkId)
-          setFigmaDesigns(current)
-          return true
-        } else {
-          setError(response.error || "Failed to delete design link")
-          return false
-        }
-      } catch (err) {
-        const errorMessage =
-          err instanceof Error ? err.message : "Unknown error"
-        setError(errorMessage)
-        return false
-      }
-    },
-    [figmaService, setFigmaDesigns]
-  )
-
-  // Don't load designs automatically on mount - only load when explicitly requested
-  // This prevents unnecessary API calls when components first appear
-  // Designs will be loaded when user opens Figma popup or explicitly requests them
-
-  const hasDesigns = designs.length > 0
+  const hasDesigns = orderedDesigns.length > 0
 
   return {
-    designs,
-    isLoading: figmaDesignsLoading,
-    error,
+    designs: orderedDesigns,
+    isLoading: isLoadingMetadata,
+    error: metadataError ?? undefined,
+    lastFetchedAt: metadataLastFetched,
     refreshDesigns,
     createDesignLink,
     deleteDesignLink,

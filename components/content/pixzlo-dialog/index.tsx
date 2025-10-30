@@ -1,4 +1,5 @@
 import { useCSSExtraction } from "@/hooks/use-css-extraction"
+import { useDialogIntegrationData } from "@/hooks/use-dialog-linear-data"
 import { useDialogSubmission } from "@/hooks/use-dialog-submission"
 import { useFigmaAuth } from "@/hooks/use-figma-auth"
 import { useFigmaDesigns } from "@/hooks/use-figma-designs"
@@ -67,6 +68,9 @@ const PixzloDialog = memo(
 
     // Extract CSS when element is provided
     useCSSExtraction()
+
+    // Pre-load integration data (Linear + Figma metadata) when dialog opens
+    useDialogIntegrationData()
 
     // Handle submission
     const { handleSubmit } = useDialogSubmission(onSubmit)
@@ -161,9 +165,9 @@ const PixzloDialog = memo(
     useEffect(() => {
       if (isFigmaPopupOpen && designs.length === 0 && !designsLoading) {
         console.log("🎯 Figma popup opened - loading designs...")
-        refreshDesigns()
+        void refreshDesigns()
       }
-    }, [isFigmaPopupOpen, designs.length, designsLoading, refreshDesigns])
+    }, [isFigmaPopupOpen, refreshDesigns])
 
     // Handle image download
     const handleDownload = useCallback(async (): Promise<void> => {
@@ -340,8 +344,7 @@ const PixzloDialog = memo(
               left: 0,
               right: 0,
               bottom: 0,
-              backgroundColor: "rgba(0, 0, 0, 0.3)", // Additional 30% black background
-              pointerEvents: "auto"
+              backgroundColor: "rgba(0, 0, 0, 0.3)" // Additional 30% black background
             }}
             data-pixzlo-ui="figma-popup-overlay">
             {/* Modal Content */}
@@ -356,7 +359,8 @@ const PixzloDialog = memo(
                 width: "90vw",
                 height: "90vh",
                 maxHeight: "90vh",
-                zIndex: 10
+                zIndex: 10,
+                pointerEvents: "auto" // Enable clicks on modal
               }}
               onClick={(e) => e.stopPropagation()}>
               {/* Close Button */}

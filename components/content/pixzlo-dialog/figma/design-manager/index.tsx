@@ -1,9 +1,11 @@
 // Removed useFigmaDesigns import - designs now passed as props
 import { EnhancedFigmaExtractor } from "@/lib/enhanced-figma-utils"
 import { FigmaService } from "@/lib/figma-service"
+import { useFigmaDataStore } from "@/stores/figma-data"
+import { useFigmaToolbarStore } from "@/stores/figma-toolbar"
 import { usePixzloDialogStore } from "@/stores/pixzlo-dialog"
 import type { FigmaDesignLink, FigmaFile, FigmaNode } from "@/types/figma"
-import { memo, useCallback, useEffect, useMemo, useState } from "react"
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import FigmaFrameSelector from "../frame-selector/figma-frame-selector"
 import FigmaFrameSelection from "./figma-frame-selection"
@@ -26,7 +28,7 @@ interface FigmaDesignManagerProps {
     },
     contextData?: FigmaContextData
   ) => void
-  existingDesigns: FigmaDesignLink[]
+  existingDesigns?: FigmaDesignLink[]
   initialContext?: FigmaContextData | null
 }
 
@@ -73,15 +75,125 @@ const FigmaDesignManager = memo(
     const [selectedDesignId, setSelectedDesignId] = useState<string | null>(
       null
     )
+    const figmaUrlRequestRef = useRef<string | null>(null)
+    const figmaUrlRef = useRef(figmaUrl)
+    figmaUrlRef.current = figmaUrl
+    const autoLoadTriggeredRef = useRef(false)
+    const previousDesignCountRef = useRef(0)
 
+    const {
+      metadata,
+      isLoadingMetadata,
+      metadataLastFetched,
+      fetchMetadata,
+      updatePreference
+    } = useFigmaDataStore()
+    const { setCurrentFrame, replaceFrames } = useFigmaToolbarStore()
     const figmaService = FigmaService.getInstance()
+
+    const safeExistingDesigns = useMemo(
+      () => existingDesigns ?? [],
+      [existingDesigns]
+    )
+
+    const preferredFrameId = metadata.preference?.lastUsedFrameId ?? null
+
+    const orderedExistingDesigns = useMemo(() => {
+      if (!preferredFrameId) {
+        return safeExistingDesigns
+      }
+
+      const preferredIndex = safeExistingDesigns.findIndex(
+        (design) => design.figma_frame_id === preferredFrameId
+      )
+
+      if (preferredIndex <= 0) {
+        return safeExistingDesigns
+      }
+
+      const preferredDesign = safeExistingDesigns[preferredIndex]
+      return [
+        preferredDesign,
+        ...safeExistingDesigns.slice(0, preferredIndex),
+        ...safeExistingDesigns.slice(preferredIndex + 1)
+      ]
+    }, [safeExistingDesigns, preferredFrameId])
+
+    const availableFrameOptions = useMemo(() => {
+      return orderedExistingDesigns.map((design) => ({
+        id: design.id, // Use database ID for uniqueness (allows duplicate Figma frames)
+        name: design.frame_name || "Unnamed Frame",
+        figmaUrl: design.frame_url,
+        imageUrl: design.thumbnail_url || "",
+        fileId: design.figma_file_id,
+        figmaFrameId: design.figma_frame_id // Keep Figma frame ID for preference matching
+      }))
+    }, [orderedExistingDesigns])
+
+    const orderDesignLinks = useCallback(
+      (designs: FigmaDesignLink[]) => {
+        if (!preferredFrameId) {
+          return designs
+        }
+
+        const preferredIndex = designs.findIndex(
+          (design) => design.figma_frame_id === preferredFrameId
+        )
+
+        if (preferredIndex <= 0) {
+          return designs
+        }
+
+        const preferredDesign = designs[preferredIndex]
+        return [
+          preferredDesign,
+          ...designs.slice(0, preferredIndex),
+          ...designs.slice(preferredIndex + 1)
+        ]
+      },
+      [preferredFrameId]
+    )
 
     const selectedDesign = useMemo(() => {
       if (!selectedDesignId) return null
       return (
-        existingDesigns.find((design) => design.id === selectedDesignId) || null
+        safeExistingDesigns.find((design) => design.id === selectedDesignId) ||
+        null
       )
-    }, [existingDesigns, selectedDesignId])
+    }, [safeExistingDesigns, selectedDesignId])
+
+    const currentFrameOption = useMemo(() => {
+      if (selectedDesign) {
+        return {
+          id: selectedDesign.id, // Use database ID for uniqueness
+          name: selectedDesign.frame_name || frameData?.name || "Current Frame",
+          figmaUrl: selectedDesign.frame_url,
+          imageUrl: frameImageUrl || selectedDesign.thumbnail_url || "",
+          fileId: selectedDesign.figma_file_id,
+          figmaFrameId: selectedDesign.figma_frame_id // Keep Figma frame ID
+        }
+      }
+
+      if (frameData) {
+        return {
+          id: frameData.id,
+          name: frameData.name || "Current Frame",
+          figmaUrl: figmaUrl,
+          imageUrl: frameImageUrl,
+          fileId:
+            frameData.fileId ||
+            figmaService.parseFigmaUrl(figmaUrl)?.fileId ||
+            "",
+          figmaFrameId: frameData.id // For new frames, use frame ID as figmaFrameId
+        }
+      }
+
+      return undefined
+    }, [selectedDesign, frameData, frameImageUrl, figmaUrl, figmaService])
+
+    const currentWebsiteOrigin = useMemo(() => {
+      return window.location.origin
+    }, [])
 
     // Initialize state from initialContext when changing design
     useEffect(() => {
@@ -183,9 +295,10 @@ const FigmaDesignManager = memo(
       console.log(
         "🔍 DEBUG: FigmaDesignManager handleCancel called - prefer using existing designs when available"
       )
-      if (existingDesigns.length > 0) {
-        // Stay in a selection-friendly state using existing designs instead of closing
+      if (orderedExistingDesigns.length > 0 && previousViewMode === "select-element") {
+        // Going back to the previous frame - restore state without reloading
         setViewMode("select-element")
+        setPreviousViewMode(null)
         setError(null)
         return
       }
@@ -194,17 +307,21 @@ const FigmaDesignManager = memo(
     }
 
     const handleAddMoreFrames = (): void => {
+      // Store current frame state to restore if user cancels
       setPreviousViewMode(viewMode)
       setViewMode("add-new")
       setError(null)
-      setSelectedDesignId(null)
-      setFrameData(null)
-      setFrameElements([])
-      setFrameImageUrl("")
+      // Don't clear frame data - we need it to restore the view if user cancels
+      // setSelectedDesignId(null)
+      // setFrameData(null)
+      // setFrameElements([])
+      // setFrameImageUrl("")
     }
 
     const handleBackToPreviousFrame = (): void => {
       if (previousViewMode) {
+        // Restore previous view without reloading
+        console.log("🔙 Going back to previous view mode:", previousViewMode)
         setViewMode(previousViewMode)
         setPreviousViewMode(null)
         setError(null)
@@ -221,11 +338,24 @@ const FigmaDesignManager = memo(
     }
 
     const handleDesignSelect = (design: FigmaDesignLink): void => {
-      onDesignSelected({
-        imageUrl: design.thumbnail_url || "",
-        designName: design.frame_name || "Figma Design",
-        figmaUrl: design.frame_url
-      })
+      // Extract fileId and frameId from the Figma URL or use from the design link
+      const contextData: FigmaContextData = {
+        figmaUrl: design.frame_url,
+        fileId: design.figma_file_id,
+        frameId: design.figma_frame_id,
+        frameData: undefined // Frame data not available for existing designs
+      }
+
+      console.log("✅ Existing frame selected with context:", contextData)
+
+      onDesignSelected(
+        {
+          imageUrl: design.thumbnail_url || "",
+          designName: design.frame_name || "Figma Design",
+          figmaUrl: design.frame_url
+        },
+        contextData
+      )
     }
 
     const handleFigmaUrlSubmit = useCallback(
@@ -238,13 +368,20 @@ const FigmaDesignManager = memo(
           return
         }
 
+        if (isProcessing) {
+          console.log(
+            "🚫 Skipping Figma URL submission - request already in progress"
+          )
+          return
+        }
+
         console.log(
           "🎯 handleFigmaUrlSubmit called with overrideUrl:",
           overrideUrl
         )
-        console.log("🎯 Current figmaUrl state:", figmaUrl)
+        console.log("🎯 Current figmaUrl state:", figmaUrlRef.current)
 
-        const urlCandidate = overrideUrl?.trim() || figmaUrl.trim()
+        const urlCandidate = overrideUrl?.trim() || figmaUrlRef.current.trim()
         console.log("🎯 URL candidate:", urlCandidate)
 
         if (!urlCandidate) {
@@ -261,12 +398,21 @@ const FigmaDesignManager = memo(
 
         console.log("✅ URL validation passed, proceeding with processing...")
 
+        if (figmaUrlRequestRef.current === urlCandidate) {
+          console.log(
+            "⏭️ Skipping duplicate Figma frame request for:",
+            urlCandidate
+          )
+          return
+        }
+
         if (!overrideUrl) {
           setSelectedDesignId(null)
         }
         setFigmaUrl(urlCandidate)
 
         setIsProcessing(true)
+        figmaUrlRequestRef.current = urlCandidate
         setError(null)
         setFrameData(null)
         setFrameElements([])
@@ -403,6 +549,7 @@ const FigmaDesignManager = memo(
           console.log("🔍 Error occurred but keeping dialog open for retry")
         } finally {
           setIsProcessing(false)
+          figmaUrlRequestRef.current = null
           // Clear figma flow active flag
           try {
             usePixzloDialogStore.getState().setIsFigmaFlowActive(false)
@@ -411,7 +558,7 @@ const FigmaDesignManager = memo(
           }
         }
       },
-      [figmaUrl, figmaService]
+      [figmaService, isProcessing]
     )
 
     const loadDesignFromLink = useCallback(
@@ -457,17 +604,31 @@ const FigmaDesignManager = memo(
         if (response.success) {
           console.log("✅ Design link created successfully")
 
+          // Create context data with file and frame IDs for issue submission
+          const contextData: FigmaContextData = {
+            figmaUrl: frameUrl,
+            fileId: (figmaFile as any).id,
+            frameId: selectedFrame.id,
+            frameData: selectedFrame
+          }
+
+          console.log("✅ New frame selected with context:", contextData)
+
           setSelectedDesignId(null)
-          onDesignSelected({
-            imageUrl: "",
-            designName: selectedFrame.name || "Selected Frame",
-            figmaUrl: frameUrl
-          })
+          onDesignSelected(
+            {
+              imageUrl: "",
+              designName: selectedFrame.name || "Selected Frame",
+              figmaUrl: frameUrl
+            },
+            contextData
+          )
 
           setFigmaUrl("")
           setFigmaFile(null)
           setSelectedFrame(null)
           setHasAutoLoadedDesign(false)
+          autoLoadTriggeredRef.current = false
           onClose()
         } else {
           setError(response.error || "Failed to create design link")
@@ -493,19 +654,28 @@ const FigmaDesignManager = memo(
       if (!isOpen) {
         setHasAutoLoadedDesign(false)
         setSelectedDesignId(null)
+        autoLoadTriggeredRef.current = false
+        figmaUrlRequestRef.current = null
+        previousDesignCountRef.current = orderedExistingDesigns.length
         return
       }
 
+      const currentCount = orderedExistingDesigns.length
+      const previousCount = previousDesignCountRef.current
+      previousDesignCountRef.current = currentCount
+
       if (
+        autoLoadTriggeredRef.current ||
         hasAutoLoadedDesign ||
-        isProcessing ||
         viewMode !== "add-new" ||
-        existingDesigns.length === 0
+        currentCount === 0 ||
+        currentCount === previousCount ||
+        figmaUrlRequestRef.current !== null
       ) {
         return
       }
 
-      const firstDesign = existingDesigns[0]
+      const firstDesign = orderedExistingDesigns[0]
       if (!firstDesign?.frame_url) {
         return
       }
@@ -516,16 +686,123 @@ const FigmaDesignManager = memo(
       )
       setHasAutoLoadedDesign(true)
       setIsAutoLoading(true)
+      autoLoadTriggeredRef.current = true
       loadDesignFromLink(firstDesign).finally(() => {
         setIsAutoLoading(false)
       })
+    }, [orderedExistingDesigns, hasAutoLoadedDesign, isOpen, viewMode])
+
+    // Single effect to handle metadata fetching when modal opens
+    useEffect(() => {
+      if (!isOpen) {
+        return
+      }
+
+      const setupDesignData = async () => {
+        const hasFreshMetadata =
+          metadataLastFetched !== undefined &&
+          Date.now() - metadataLastFetched < 5 * 60 * 1000 &&
+          metadata.website?.url === currentWebsiteOrigin
+
+        // Don't do anything if already loading
+        if (isLoadingMetadata) {
+          console.log("⏭️ Skipping setup - metadata already loading")
+          return
+        }
+
+        if (hasFreshMetadata) {
+          console.log("✅ Metadata already fresh for", currentWebsiteOrigin)
+        }
+
+        setIsAutoLoading(true)
+
+        // Fetch metadata once if not fresh
+        if (!hasFreshMetadata) {
+          console.log("📡 Fetching fresh metadata for:", currentWebsiteOrigin)
+          await fetchMetadata(currentWebsiteOrigin)
+        }
+
+        // Set frames from metadata once
+        if (metadata.designLinks.length > 0) {
+          const orderedLinks = orderDesignLinks(metadata.designLinks)
+          const frames = orderedLinks.map((design) => ({
+            id: design.id, // Use database ID for uniqueness (allows duplicate Figma frames)
+            name: design.frame_name ?? "Untitled",
+            figmaUrl: design.frame_url,
+            imageUrl: design.thumbnail_url ?? undefined,
+            fileId: design.figma_file_id,
+            figmaFrameId: design.figma_frame_id // Keep Figma frame ID for preference matching
+          }))
+
+          replaceFrames(frames)
+
+          // Auto-select preferred frame if available - match by Figma frame ID
+          if (metadata.preference?.lastUsedFrameId) {
+            const preferred = frames.find(
+              (frame) =>
+                frame.figmaFrameId === metadata.preference?.lastUsedFrameId
+            )
+            if (preferred) {
+              setCurrentFrame(preferred)
+            }
+          }
+        }
+
+        setIsAutoLoading(false)
+      }
+
+      void setupDesignData()
     }, [
-      existingDesigns,
-      loadDesignFromLink,
-      hasAutoLoadedDesign,
       isOpen,
-      isProcessing,
-      viewMode
+      metadataLastFetched,
+      metadata.website?.url,
+      currentWebsiteOrigin,
+      isLoadingMetadata,
+      fetchMetadata,
+      replaceFrames,
+      setCurrentFrame,
+      orderDesignLinks
+    ])
+
+    // Separate effect to handle frame setup when metadata changes
+    useEffect(() => {
+      if (!isOpen || isLoadingMetadata) {
+        return
+      }
+
+      // Set frames from metadata once
+      if (metadata.designLinks.length > 0) {
+        const orderedLinks = orderDesignLinks(metadata.designLinks)
+        const frames = orderedLinks.map((design) => ({
+          id: design.id, // Use database ID for uniqueness (allows duplicate Figma frames)
+          name: design.frame_name ?? "Untitled",
+          figmaUrl: design.frame_url,
+          imageUrl: design.thumbnail_url ?? undefined,
+          fileId: design.figma_file_id,
+          figmaFrameId: design.figma_frame_id // Keep Figma frame ID for preference matching
+        }))
+
+        replaceFrames(frames)
+
+        // Auto-select preferred frame if available - match by Figma frame ID
+        if (metadata.preference?.lastUsedFrameId) {
+          const preferred = frames.find(
+            (frame) =>
+              frame.figmaFrameId === metadata.preference?.lastUsedFrameId
+          )
+          if (preferred) {
+            setCurrentFrame(preferred)
+          }
+        }
+      }
+    }, [
+      isOpen,
+      isLoadingMetadata,
+      metadata.designLinks,
+      metadata.preference?.lastUsedFrameId,
+      replaceFrames,
+      setCurrentFrame,
+      orderDesignLinks
     ])
 
     const handleElementSelect = async (
@@ -575,16 +852,45 @@ const FigmaDesignManager = memo(
         const elementWidth = element.absoluteBoundingBox.width * scaleX
         const elementHeight = element.absoluteBoundingBox.height * scaleY
 
-        // Calculate capture area with padding
+        // Calculate capture area with padding, bounded within the frame image
         const PADDING = 40
+
+        // Calculate the capture area relative to the element, with padding
+        const captureX = elementRelativeX - PADDING
+        const captureY = elementRelativeY - PADDING
+        const captureWidth = elementWidth + PADDING * 2
+        const captureHeight = elementHeight + PADDING * 2
+
+        // Clamp the capture area to stay within the frame image boundaries
+        const clampedX = Math.max(0, Math.min(captureX, frameImageRect.width))
+        const clampedY = Math.max(0, Math.min(captureY, frameImageRect.height))
+        const clampedWidth = Math.min(
+          captureWidth,
+          frameImageRect.width - clampedX
+        )
+        const clampedHeight = Math.min(
+          captureHeight,
+          frameImageRect.height - clampedY
+        )
+
+        // Convert to absolute screen coordinates (within frame image only)
         const captureArea = {
-          x: Math.max(0, frameImageRect.left + elementRelativeX - PADDING),
-          y: Math.max(0, frameImageRect.top + elementRelativeY - PADDING),
-          width: Math.min(elementWidth + PADDING * 2, window.innerWidth),
-          height: Math.min(elementHeight + PADDING * 2, window.innerHeight)
+          x: frameImageRect.left + clampedX,
+          y: frameImageRect.top + clampedY,
+          width: clampedWidth,
+          height: clampedHeight
         }
 
-        console.log("📏 Calculated capture area:", captureArea)
+        console.log("📏 Calculated capture area (bounded to frame):", {
+          frameImageRect: {
+            left: frameImageRect.left,
+            top: frameImageRect.top,
+            width: frameImageRect.width,
+            height: frameImageRect.height
+          },
+          elementPosition: { x: elementRelativeX, y: elementRelativeY },
+          captureArea
+        })
 
         // Request screenshot from background
         const response = await new Promise<{
@@ -779,44 +1085,15 @@ const FigmaDesignManager = memo(
                 window.open(designUrl, "_blank")
               }}
               onFrameSwitch={async ({ id }) => {
-                const design = existingDesigns.find((item) => item.id === id)
+                const design = orderedExistingDesigns.find(
+                  (item) => item.figma_frame_id === id || item.id === id
+                )
                 if (design) {
                   await loadDesignFromLink(design)
                 }
               }}
-              availableFrames={existingDesigns.map((design) => ({
-                id: design.id,
-                name: design.frame_name || "Unnamed Frame",
-                figmaUrl: design.frame_url,
-                imageUrl: design.thumbnail_url || "",
-                fileId: design.figma_file_id
-              }))}
-              currentFrame={
-                selectedDesign
-                  ? {
-                      id: selectedDesign.id,
-                      name:
-                        selectedDesign.frame_name ||
-                        frameData?.name ||
-                        "Current Frame",
-                      figmaUrl: selectedDesign.frame_url,
-                      imageUrl:
-                        frameImageUrl || selectedDesign.thumbnail_url || "",
-                      fileId: selectedDesign.figma_file_id
-                    }
-                  : frameData
-                    ? {
-                        id: frameData.id,
-                        name: frameData.name || "Current Frame",
-                        figmaUrl: figmaUrl,
-                        imageUrl: frameImageUrl,
-                        fileId:
-                          frameData.fileId ||
-                          figmaService.parseFigmaUrl(figmaUrl)?.fileId ||
-                          ""
-                      }
-                    : undefined
-              }
+              availableFrames={availableFrameOptions}
+              currentFrame={currentFrameOption}
               isProcessing={isProcessing}
             />
           ) : (

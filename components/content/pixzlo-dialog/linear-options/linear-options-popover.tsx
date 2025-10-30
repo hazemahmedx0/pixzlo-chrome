@@ -4,19 +4,19 @@ import {
   PopoverContent,
   PopoverTrigger
 } from "@/components/ui/popover"
+import { PIXZLO_WEB_URL } from "@/lib/constants"
 import {
-  useLinearOptions,
+  useLinearDataStore,
   type LinearOptionsData
-} from "@/hooks/use-linear-options"
+} from "@/stores/linear-data"
 import { Settings } from "lucide-react"
-import { useState } from "react"
+import { useMemo, useState } from "react"
 
 import {
-  CategorySelect,
   type LinearOptionCategory,
   type LinearSelectionState
 } from "./category-select"
-import { LinearOptionsList } from "./linear-options-list"
+import EnhancedCategorySelect from "./enhanced-category-select"
 
 interface LinearOptionsPopoverProps {
   isConnected: boolean
@@ -54,12 +54,17 @@ export function LinearOptionsPopover({
         }))
       }
 
-  const {
-    data: options,
-    isLoading,
-    fetchOptions,
-    retryFetch
-  } = useLinearOptions()
+  const { metadata, isLoadingMetadata } = useLinearDataStore()
+
+  const options: LinearOptionsData = useMemo(
+    () => ({
+      teams: metadata.teams,
+      projects: metadata.projects,
+      users: metadata.users,
+      workflowStates: metadata.workflowStates
+    }),
+    [metadata]
+  )
 
   const handleSelect = (
     category: LinearOptionCategory,
@@ -82,11 +87,6 @@ export function LinearOptionsPopover({
           variant="ghost"
           size="sm"
           className="h-6 w-6 p-0 hover:bg-gray-100"
-          onClick={() => {
-            if (!options.teams && !isLoading) {
-              void fetchOptions()
-            }
-          }}
           aria-label="Linear settings">
           <Settings className="h-4 w-4 text-gray-500" />
         </Button>
@@ -107,17 +107,11 @@ export function LinearOptionsPopover({
             </p>
           </header>
 
-          <CategorySelect
+          <EnhancedCategorySelect
             data={options}
             selections={selected}
             onSelect={handleSelect}
-            isLoading={isLoading}
-          />
-
-          <LinearOptionsList
-            data={options}
-            selections={selected}
-            onSelect={handleSelect}
+            isLoading={isLoadingMetadata}
           />
 
           <footer className="flex items-center justify-between border-t pt-2 text-[11px] text-gray-500">
@@ -129,8 +123,7 @@ export function LinearOptionsPopover({
               size="sm"
               className="text-xs"
               onClick={() => {
-                const pixzloWebUrl =
-                  process.env.PIXZLO_WEB_URL || "http://localhost:3000"
+                const pixzloWebUrl = PIXZLO_WEB_URL
                 window.open(`${pixzloWebUrl}/settings/integrations`, "_blank")
               }}>
               Manage

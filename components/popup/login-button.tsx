@@ -1,8 +1,9 @@
 import { Button } from "@/components/ui/button"
+import { PIXZLO_WEB_URL } from "@/lib/constants"
 
 export const LoginButton = () => {
   const handleLogin = () => {
-    chrome.tabs.create({ url: "http://localhost:3000/login" })
+    chrome.tabs.create({ url: `${PIXZLO_WEB_URL}/login` })
   }
 
   return (

@@ -43,7 +43,9 @@ const FigmaDesignManager = memo(
     const {
       isAuthenticated,
       isLoading: authLoading,
-      checkAuth
+      metadata,
+      isLoadingMetadata,
+      fetchMetadata
     } = useFigmaAuth()
 
     const hasDesigns = designs.length > 0
@@ -68,8 +70,8 @@ const FigmaDesignManager = memo(
 
     const handleAddDesignClick = (): void => {
       console.log("🎯 Add design clicked - opening modal...")
-      // Just open modal - auth check happens inside the modal
       setIsFigmaPopupOpen(true)
+      // Metadata fetching is handled by the modal component
     }
 
     const handleDesignSelection = (
@@ -95,6 +97,7 @@ const FigmaDesignManager = memo(
         onClick={handleAddDesignClick}
         aspectRatio={placeholderAspectRatio}
         minHeight={placeholderMinHeight}
+        isLoading={isLoadingMetadata}
       />
     )
   }

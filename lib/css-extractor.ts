@@ -157,37 +157,63 @@ export class CSSExtractor {
       return inlineValue
     }
 
-    // For CSS custom properties (variables), try to find the original declaration
-    if (property.includes("color") || property === "border") {
-      // Check if the computed value contains CSS variables
-      const computedValue = window
-        .getComputedStyle(element)
-        .getPropertyValue(property)
+    // Collect all matching rules from stylesheets
+    const matchingRules: { specificity: number; value: string }[] = []
+    const sheets = Array.from(document.styleSheets)
 
-      // Look for CSS variable patterns in stylesheets
-      const sheets = Array.from(document.styleSheets)
-      for (const sheet of sheets) {
-        try {
-          const rules = Array.from(sheet.cssRules || [])
-          for (const rule of rules) {
-            if (
-              rule instanceof CSSStyleRule &&
-              element.matches(rule.selectorText)
-            ) {
-              const ruleValue = rule.style.getPropertyValue(property)
-              if (ruleValue && ruleValue.includes("var(--")) {
-                return ruleValue
+    for (const sheet of sheets) {
+      try {
+        const rules = Array.from(sheet.cssRules || [])
+        for (const rule of rules) {
+          if (rule instanceof CSSStyleRule) {
+            try {
+              if (element.matches(rule.selectorText)) {
+                const ruleValue = rule.style.getPropertyValue(property)
+                if (ruleValue) {
+                  // Calculate specificity (rough approximation)
+                  const specificity = this.calculateSpecificity(rule.selectorText)
+                  matchingRules.push({ specificity, value: ruleValue })
+                }
               }
+            } catch (e) {
+              // Invalid selector or element not matchable - skip
+              continue
             }
           }
-        } catch (e) {
-          // CORS or other access issues
-          continue
         }
+      } catch (e) {
+        // CORS or other access issues - skip this stylesheet
+        continue
       }
     }
 
+    // Return the value from the rule with highest specificity
+    if (matchingRules.length > 0) {
+      matchingRules.sort((a, b) => b.specificity - a.specificity)
+      return matchingRules[0].value
+    }
+
     return undefined
+  }
+
+  private static calculateSpecificity(selector: string): number {
+    // Simple specificity calculation
+    // IDs = 100, classes/attributes/pseudo-classes = 10, elements/pseudo-elements = 1
+    let specificity = 0
+
+    // Count IDs
+    const idMatches = selector.match(/#/g)
+    if (idMatches) specificity += idMatches.length * 100
+
+    // Count classes, attributes, and pseudo-classes
+    const classMatches = selector.match(/\.|(\[.*?\])|:/g)
+    if (classMatches) specificity += classMatches.length * 10
+
+    // Count elements
+    const elementMatches = selector.match(/[a-zA-Z]+/g)
+    if (elementMatches) specificity += elementMatches.length * 1
+
+    return specificity
   }
 
   static formatValue(

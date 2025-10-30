@@ -1,7 +1,7 @@
 import { useFigmaAuth } from "@/hooks/use-figma-auth"
 import { useFigmaDesigns } from "@/hooks/use-figma-designs"
 import type { FigmaDesignLink } from "@/types/figma"
-import { memo, useEffect, useState } from "react"
+import { memo, useCallback, useEffect, useState } from "react"
 
 import FigmaAuthPrompt from "./auth/figma-auth-prompt"
 import FigmaDesignManager from "./design-manager"
@@ -37,28 +37,35 @@ const FigmaModalContent = memo(
   }: FigmaModalContentProps): JSX.Element => {
     const [isCheckingAuth, setIsCheckingAuth] = useState(true) // Start with true since we need to check on mount
 
-    const {
-      isAuthenticated,
-      isLoading: authLoading,
-      checkAuth
-    } = useFigmaAuth()
+    const { isAuthenticated, isLoading: authLoading } = useFigmaAuth()
 
-    // Check auth when this component mounts (modal content is rendered)
+    // Just wait for auth loading to complete (metadata is already fetched by dialog)
     useEffect(() => {
-      if (isOpen) {
-        console.log("🎯 Modal content mounted - checking auth status...")
-        setIsCheckingAuth(true)
-        checkAuth().finally(() => {
-          // Add small delay to prevent flashing
-          setTimeout(() => {
-            setIsCheckingAuth(false)
-          }, 300)
-        })
+      if (!isOpen) {
+        setIsCheckingAuth(false)
+        return
       }
-    }, [isOpen, checkAuth])
+
+      console.log("🎯 Modal content mounted - waiting for auth...", {
+        authLoading,
+        isAuthenticated
+      })
+
+      // Metadata is already being fetched by the main dialog via useDialogIntegrationData
+      // We just need to wait for it to complete
+      setIsCheckingAuth(true)
+
+      // Wait briefly for auth state to stabilize, then end checking
+      const timer = setTimeout(() => {
+        console.log("✅ Auth state ready", { isAuthenticated, authLoading })
+        setIsCheckingAuth(false)
+      }, 800)
+
+      return () => clearTimeout(timer)
+    }, [isOpen, authLoading, isAuthenticated])
 
     // Handle auth completion with loading state
-    const handleAuthCompleted = async (): Promise<void> => {
+    const handleAuthCompleted = useCallback(async (): Promise<void> => {
       setIsCheckingAuth(true)
       try {
         await onAuthCompleted()
@@ -67,9 +74,10 @@ const FigmaModalContent = memo(
           setIsCheckingAuth(false)
         }, 300)
       }
-    }
+    }, [onAuthCompleted])
 
     if (isCheckingAuth || authLoading) {
+      console.log("⏳ Showing loading state:", { isCheckingAuth, authLoading })
       return (
         <div className="flex h-full items-center justify-center">
           <div className="text-center">
@@ -77,6 +85,10 @@ const FigmaModalContent = memo(
               <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-blue-500"></div>
             </div>
             <p className="text-gray-600">Loading Figma integration...</p>
+            <p className="mt-2 text-xs text-gray-400">
+              {isCheckingAuth && "Checking auth..."}
+              {authLoading && " Loading metadata..."}
+            </p>
           </div>
         </div>
       )

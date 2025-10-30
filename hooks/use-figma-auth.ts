@@ -1,110 +1,59 @@
-import { FigmaService } from "@/lib/figma-service"
-import type { FigmaAuthError, FigmaAuthStatus } from "@/types/figma"
-import { useCallback, useEffect, useState } from "react"
+import { useFigmaDataStore } from "@/stores/figma-data"
+import type { FigmaAuthStatus } from "@/types/figma"
+import { useCallback } from "react"
+
+type FigmaDataState = ReturnType<typeof useFigmaDataStore.getState>
 
 interface UseFigmaAuthReturn {
-  authStatus: FigmaAuthStatus | null
+  authStatus: FigmaAuthStatus | undefined
   isLoading: boolean
-  error: FigmaAuthError | null
+  error: string | undefined
   checkAuth: () => Promise<void>
   initiateAuth: () => Promise<void>
   isAuthenticated: boolean
+  metadata: FigmaDataState["metadata"]
+  isLoadingMetadata: boolean
+  fetchMetadata: (websiteUrl?: string) => Promise<void>
 }
 
-/**
- * Hook for managing Figma authentication state
- */
 export function useFigmaAuth(): UseFigmaAuthReturn {
-  const [authStatus, setAuthStatus] = useState<FigmaAuthStatus | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<FigmaAuthError | null>(null)
-
-  const figmaService = FigmaService.getInstance()
+  const {
+    metadata,
+    isLoadingStatus,
+    isLoadingMetadata,
+    isConnected,
+    refreshMetadata,
+    fetchMetadata,
+    metadataError
+  } = useFigmaDataStore()
 
   const checkAuth = useCallback(async (): Promise<void> => {
-    console.log("🔐 Checking Figma auth status...")
-    setIsLoading(true)
-    setError(null)
-
-    try {
-      const response = await figmaService.checkAuthStatus()
-      console.log("🔐 Auth response:", response)
-
-      if (response.success && response.data) {
-        console.log(
-          "🔐 Auth result:",
-          response.data.connected ? "CONNECTED" : "NOT CONNECTED"
-        )
-        setAuthStatus(response.data)
-      } else {
-        console.log("🔐 Auth check failed:", response.error)
-        setError({
-          type: "API_ERROR",
-          message: response.error || "Failed to check auth status"
-        })
-      }
-    } catch (err) {
-      console.error("🔐 Auth check error:", err)
-      setError({
-        type: "API_ERROR",
-        message: err instanceof Error ? err.message : "Unknown error"
-      })
-    } finally {
-      setIsLoading(false)
-    }
-  }, [figmaService])
+    // Fetch metadata to check auth status
+    await fetchMetadata()
+  }, [fetchMetadata])
 
   const initiateAuth = useCallback(async (): Promise<void> => {
-    setIsLoading(true)
-    setError(null)
+    await refreshMetadata()
+  }, [refreshMetadata])
 
-    try {
-      const response = await figmaService.initiateAuth()
-
-      if (response.success && response.data?.authUrl) {
-        // Open OAuth URL in new tab
-        window.open(response.data.authUrl, "_blank")
-      } else {
-        setError({
-          type: "AUTH_REQUIRED",
-          message: response.error || "Failed to initiate authentication"
-        })
+  const authStatus: FigmaAuthStatus | undefined = metadata.integration
+    ? {
+        connected: Boolean(metadata.integration.is_active),
+        integration: metadata.integration
       }
-    } catch (err) {
-      setError({
-        type: "AUTH_REQUIRED",
-        message: err instanceof Error ? err.message : "Authentication failed"
-      })
-    } finally {
-      setIsLoading(false)
-    }
-  }, [figmaService])
+    : { connected: false }
 
-  // DON'T check auth on mount - only check when explicitly needed
-  // useEffect(() => {
-  //   checkAuth()
-  // }, [])
-
-  const isAuthenticated = Boolean(
-    authStatus?.connected && authStatus?.integration?.is_active
-  )
-
-  // Minimal debug logging - only when auth status actually changes
-  useEffect(() => {
-    if (authStatus) {
-      console.log("🔐 Auth status changed:", {
-        connected: authStatus.connected,
-        isAuthenticated
-      })
-    }
-  }, [authStatus?.connected, isAuthenticated])
+  const isAuthenticated = isConnected
 
   return {
     authStatus,
-    isLoading,
-    error,
+    isLoading: isLoadingMetadata || isLoadingStatus,
+    error: metadataError,
     checkAuth,
     initiateAuth,
-    isAuthenticated
+    isAuthenticated,
+    metadata,
+    isLoadingMetadata,
+    fetchMetadata
   }
 }
