@@ -327,6 +327,7 @@ const FigmaFrameSelector = memo(
             <div className="inline-block rounded-lg">
               <div
                 ref={frameContainerRef}
+                data-pixzlo-frame="true"
                 className="relative cursor-crosshair"
                 onMouseMove={handleMouseMove}
                 onMouseLeave={handleMouseLeave}

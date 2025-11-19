@@ -18,6 +18,7 @@ export interface ElementSelectionResult {
 export class ElementSelectionService {
   private static instance: ElementSelectionService
   private captureService: CaptureService
+  private containerElement: HTMLElement | null = null
 
   private constructor() {
     this.captureService = CaptureService.getInstance()
@@ -31,16 +32,113 @@ export class ElementSelectionService {
   }
 
   /**
-   * Adjusts the given bounds to ensure they are within the visible viewport.
-   * This clips the area to what's currently visible on screen.
+   * Set the container element for viewport calculations.
+   * When set, viewport bounds will be relative to this container instead of the window.
+   * This is useful for frame previews or embedded contexts.
    */
-  private adjustBoundsToViewport(bounds: ElementBounds): ElementBounds {
-    const viewport = {
+  setContainerElement(container: HTMLElement | null): void {
+    this.containerElement = container
+    console.log("📦 Container element set:", container ? container.tagName : "null")
+  }
+
+  /**
+   * Automatically detect if the given element is within a frame preview container.
+   * Returns the container element if found, null otherwise.
+   */
+  private detectFrameContainer(element: HTMLElement): HTMLElement | null {
+    // Look for common frame/preview container patterns
+    const containerSelectors = [
+      '[data-pixzlo-frame]',
+      '[data-frame-preview]',
+      '.frame-preview',
+      '.preview-container',
+      '[data-frame-id]',
+      '[data-design-reference]',
+      'iframe'
+    ]
+
+    let current: HTMLElement | null = element
+    while (current && current !== document.body) {
+      // Skip the extension dialog itself
+      if (current.dataset?.pixzloUi === 'dialog') {
+        console.log("🚫 Reached extension dialog, stopping container search")
+        return null
+      }
+
+      // Check if current element matches any container selector
+      for (const selector of containerSelectors) {
+        if (current.matches?.(selector)) {
+          console.log("🎯 Detected frame container:", selector, current)
+          return current
+        }
+      }
+
+      // Check for elements with specific data attributes
+      if (current.dataset?.framePreview || current.dataset?.pixzloFrame || current.dataset?.frameId) {
+        console.log("🎯 Detected frame container via data attribute:", current)
+        return current
+      }
+
+      // Check for image preview containers or design reference containers
+      if (current.classList.contains('image-preview') ||
+          current.classList.contains('design-reference') ||
+          current.classList.contains('screenshot-preview')) {
+        console.log("🎯 Detected frame container via class name:", current.className)
+        return current
+      }
+
+      current = current.parentElement
+    }
+
+    console.log("⚠️ No frame container detected, using default window viewport")
+    return null
+  }
+
+  /**
+   * Get the current viewport bounds, either from the container or the window.
+   */
+  private getViewportBounds(): { left: number; top: number; right: number; bottom: number } {
+    if (this.containerElement) {
+      const containerRect = this.containerElement.getBoundingClientRect()
+      // Convert container viewport coordinates to document coordinates
+      return {
+        left: containerRect.left + window.scrollX,
+        top: containerRect.top + window.scrollY,
+        right: containerRect.right + window.scrollX,
+        bottom: containerRect.bottom + window.scrollY
+      }
+    }
+
+    // Default: use full window viewport
+    return {
       left: window.scrollX,
       top: window.scrollY,
       right: window.scrollX + window.innerWidth,
       bottom: window.scrollY + window.innerHeight
     }
+  }
+
+  /**
+   * Adjusts the given bounds to ensure they are within the visible viewport.
+   * This clips the area to what's currently visible on screen.
+   *
+   * IMPORTANT: If a container element is set (frame preview mode), this returns
+   * the full bounds WITHOUT clipping, since we want to capture the entire element
+   * even if parts are scrolled out of view.
+   */
+  private adjustBoundsToViewport(bounds: ElementBounds): ElementBounds {
+    // If we're in container mode (frame preview), don't clip at all
+    // We want the full element + 40px padding regardless of scroll position
+    if (this.containerElement) {
+      console.log("📦 Container mode: Using full bounds without viewport clipping", {
+        bounds,
+        container: this.containerElement.tagName
+      })
+      return bounds
+    }
+
+    // Regular mode: clip to visible viewport
+    const viewport = this.getViewportBounds()
 
     const intersection = {
       startX: Math.max(bounds.startX, viewport.left),
@@ -145,46 +243,63 @@ export class ElementSelectionService {
       "🚀 ElementSelectionService - capturing element with 16:9 aspect ratio"
     )
 
-    // Use the provided rect (captured at selection time) or fall back to current rect
-    const rect = providedRect || element.getBoundingClientRect()
-    const rawBaseArea = this.calculateElementBoundsFromRect(rect, 40)
-    const baseArea = this.adjustBoundsToViewport(rawBaseArea)
+    // Auto-detect frame container if not explicitly set
+    const detectedContainer = this.detectFrameContainer(element)
+    const previousContainer = this.containerElement
 
-    // After adjusting, if the area has no size, the element is not visible.
-    if (baseArea.width <= 0 || baseArea.height <= 0) {
-      throw new Error(
-        "Invalid element selection - element is completely outside the viewport."
-      )
+    if (detectedContainer && !this.containerElement) {
+      console.log("📦 Auto-detected frame container, using for viewport calculations")
+      this.setContainerElement(detectedContainer)
     }
 
-    console.log("📏 Base area (element + 40px margin):", baseArea)
-    console.log("📦 Element rect:", rect)
-    console.log(
-      "🎯 Using provided rect:",
-      !!providedRect,
-      providedRect ? "from selection time" : "recalculated"
-    )
+    try {
+      // Use the provided rect (captured at selection time) or fall back to current rect
+      const rect = providedRect || element.getBoundingClientRect()
+      const rawBaseArea = this.calculateElementBoundsFromRect(rect, 40)
+      const baseArea = this.adjustBoundsToViewport(rawBaseArea)
 
-    // Check if element contains Konva canvas
-    const konvaCanvases = this.findKonvaCanvases(element)
-    console.log("🔍 Checking for Konva canvases:", {
-      elementTag: element.tagName,
-      elementClasses: Array.from(element.classList),
-      konvaCanvasesFound: konvaCanvases.length
-    })
+      // After adjusting, if the area has no size, the element is not visible.
+      if (baseArea.width <= 0 || baseArea.height <= 0) {
+        throw new Error(
+          "Invalid element selection - element is completely outside the viewport."
+        )
+      }
 
-    if (konvaCanvases.length > 0) {
-      console.log("🎨 Konva canvas detected, using special capture method...")
-      return await this.captureKonvaElement(
-        element,
-        rect,
-        konvaCanvases,
-        options
+      console.log("📏 Base area (element + 40px margin):", baseArea)
+      console.log("📦 Element rect:", rect)
+      console.log(
+        "🎯 Using provided rect:",
+        !!providedRect,
+        providedRect ? "from selection time" : "recalculated"
       )
-    }
 
-    console.log("📸 No Konva canvas found, using regular capture method...")
-    return await this.captureRegularElement(element, rect, baseArea, options)
+      // Check if element contains Konva canvas
+      const konvaCanvases = this.findKonvaCanvases(element)
+      console.log("🔍 Checking for Konva canvases:", {
+        elementTag: element.tagName,
+        elementClasses: Array.from(element.classList),
+        konvaCanvasesFound: konvaCanvases.length
+      })
+
+      if (konvaCanvases.length > 0) {
+        console.log("🎨 Konva canvas detected, using special capture method...")
+        return await this.captureKonvaElement(
+          element,
+          rect,
+          konvaCanvases,
+          options
+        )
+      }
+
+      console.log("📸 No Konva canvas found, using regular capture method...")
+      return await this.captureRegularElement(element, rect, baseArea, options)
+    } finally {
+      // Restore previous container setting if we auto-detected one
+      if (detectedContainer && previousContainer === null) {
+        console.log("🔄 Restoring previous container setting")
+        this.setContainerElement(previousContainer)
+      }
+    }
   }
 
   /**

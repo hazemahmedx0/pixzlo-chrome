@@ -1,5 +1,7 @@
 import type { CaptureOptions, CaptureType, Screenshot } from "@/types/capture"
 
+const PADDING_BACKGROUND_COLOR = "#f3f4f6"
+
 export class CaptureService {
   private static instance: CaptureService
 
@@ -155,45 +157,12 @@ export class CaptureService {
             aspectRatio
           })
 
-          // Fill entire canvas with dark background first (to eliminate any light gray)
-          ctx.fillStyle = "#000000" // Black background
+          // Fill entire canvas with the standard padding color first
+          ctx.fillStyle = PADDING_BACKGROUND_COLOR
           ctx.fillRect(0, 0, canvas.width, canvas.height)
 
           // Draw the original image
           ctx.drawImage(img, imageX, imageY, imageWidth, imageHeight)
-
-          // Add gray padding only where needed, with exact pixel alignment
-          ctx.fillStyle = "#808080"
-
-          if (currentRatio > aspectRatio) {
-            // Add gray only on top and bottom
-            if (imageY > 0) {
-              ctx.fillRect(0, 0, canvas.width, imageY) // Top gray
-            }
-            const bottomStart = imageY + imageHeight
-            if (bottomStart < canvas.height) {
-              ctx.fillRect(
-                0,
-                bottomStart,
-                canvas.width,
-                canvas.height - bottomStart
-              ) // Bottom gray
-            }
-          } else {
-            // Add gray only on left and right
-            if (imageX > 0) {
-              ctx.fillRect(0, 0, imageX, canvas.height) // Left gray
-            }
-            const rightStart = imageX + imageWidth
-            if (rightStart < canvas.width) {
-              ctx.fillRect(
-                rightStart,
-                0,
-                canvas.width - rightStart,
-                canvas.height
-              ) // Right gray
-            }
-          }
 
           resolve(canvas.toDataURL("image/png"))
         } catch (error) {

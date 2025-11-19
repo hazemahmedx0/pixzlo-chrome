@@ -1552,6 +1552,51 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true
   }
 
+  if (message.type === "FETCH_IMAGE_DATA_URL") {
+    console.log("📥 Background fetching image data URL:", message.url)
+
+    fetch(message.url)
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(
+            `Failed to fetch image: ${response.status} ${response.statusText}`
+          )
+        }
+        return response.blob()
+      })
+      .then(
+        (blob) =>
+          new Promise<string>((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onloadend = () => {
+              if (typeof reader.result === "string") {
+                resolve(reader.result)
+              } else {
+                reject(new Error("Failed to convert blob to data URL"))
+              }
+            }
+            reader.onerror = () => reject(new Error("Failed to read image blob"))
+            reader.readAsDataURL(blob)
+          })
+      )
+      .then((dataUrl) => {
+        console.log("✅ Background image fetch successful")
+        sendResponse({
+          success: true,
+          dataUrl
+        })
+      })
+      .catch((error) => {
+        console.error("❌ Background image fetch error:", error)
+        sendResponse({
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error"
+        })
+      })
+
+    return true
+  }
+
   if (message.type === "CAPTURE_ELEMENT_SCREENSHOT") {
     console.log(
       "Background script - Screenshot capture requested:",

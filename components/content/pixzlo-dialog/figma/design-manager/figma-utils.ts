@@ -128,6 +128,172 @@ export async function createPaddedAspectRatioImage({
   })
 }
 
+/**
+ * Crop directly from source image (e.g. Figma frame image) using relative coordinates
+ * This avoids viewport/scroll issues by working with the actual image data
+ * 
+ * Uses fetch to bypass CORS restrictions for cross-origin images
+ * 
+ * @param sourceImageUrl - The source image URL (e.g. Figma frame image)
+ * @param cropArea - Crop area in relative coordinates to the displayed image
+ * @param displayedWidth - Width of the displayed image in the DOM
+ * @param displayedHeight - Height of the displayed image in the DOM
+ * @returns Promise<string> - Cropped image as data URL
+ */
+async function fetchImageDataUrl(sourceImageUrl: string): Promise<string> {
+  // Prefer background script fetch to bypass CORS (requires host permissions)
+  if (typeof chrome !== "undefined" && chrome.runtime?.sendMessage) {
+    try {
+      console.log("🔄 Requesting background fetch for image...")
+      const response = await new Promise<{
+        success?: boolean
+        dataUrl?: string
+        error?: string
+      }>((resolve, reject) => {
+        try {
+          chrome.runtime.sendMessage(
+            {
+              type: "FETCH_IMAGE_DATA_URL",
+              url: sourceImageUrl
+            },
+            (resp) => {
+              const lastError = chrome.runtime.lastError
+              if (lastError) {
+                reject(new Error(lastError.message))
+                return
+              }
+              resolve(resp)
+            }
+          )
+        } catch (error) {
+          reject(error instanceof Error ? error : new Error(String(error)))
+        }
+      })
+
+      if (response?.success && response.dataUrl) {
+        console.log("✅ Background fetch succeeded")
+        return response.dataUrl as string
+      }
+
+      console.warn(
+        "⚠️ Background fetch failed, falling back to direct fetch:",
+        response?.error
+      )
+    } catch (error) {
+      console.warn("⚠️ Background fetch threw error, falling back:", error)
+    }
+  }
+
+  // Fallback: direct fetch (may still fail due to CORS)
+  console.log("🔍 Falling back to direct fetch...")
+  const fallbackResponse = await fetch(sourceImageUrl, { mode: "cors" })
+  if (!fallbackResponse.ok) {
+    throw new Error(
+      `Failed to fetch image: ${fallbackResponse.status} ${fallbackResponse.statusText}`
+    )
+  }
+  const blob = await fallbackResponse.blob()
+
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onloadend = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result)
+      } else {
+        reject(new Error("Failed to read blob as data URL"))
+      }
+    }
+    reader.onerror = () => {
+      reject(new Error("Failed to read image blob"))
+    }
+    reader.readAsDataURL(blob)
+  })
+}
+
+export async function cropImageFromSource(
+  sourceImageUrl: string,
+  cropArea: { x: number; y: number; width: number; height: number },
+  displayedWidth: number,
+  displayedHeight: number
+): Promise<string> {
+  try {
+    const imageDataUrl = await fetchImageDataUrl(sourceImageUrl)
+
+    return new Promise((resolve, reject) => {
+      const img = new Image()
+
+      img.onload = () => {
+        const canvas = document.createElement("canvas")
+        const ctx = canvas.getContext("2d")
+
+        if (!ctx) {
+          reject(new Error("Failed to get canvas context"))
+          return
+        }
+
+        // Calculate scale factor between displayed size and actual image size
+        const scaleX = img.width / displayedWidth
+        const scaleY = img.height / displayedHeight
+
+        console.log("🔍 cropImageFromSource: Scale factors:", {
+          imageSize: { width: img.width, height: img.height },
+          displayedSize: { width: displayedWidth, height: displayedHeight },
+          scale: { x: scaleX, y: scaleY }
+        })
+
+        // Convert crop area from displayed coordinates to actual image coordinates
+        const sourceX = cropArea.x * scaleX
+        const sourceY = cropArea.y * scaleY
+        const sourceWidth = cropArea.width * scaleX
+        const sourceHeight = cropArea.height * scaleY
+
+        console.log("🔍 cropImageFromSource: Crop area:", {
+          displayed: cropArea,
+          actual: {
+            x: sourceX,
+            y: sourceY,
+            width: sourceWidth,
+            height: sourceHeight
+          }
+        })
+
+        // Set canvas to the crop size
+        canvas.width = sourceWidth
+        canvas.height = sourceHeight
+
+        // Draw the cropped portion
+        ctx.drawImage(
+          img,
+          sourceX,
+          sourceY,
+          sourceWidth,
+          sourceHeight,
+          0,
+          0,
+          sourceWidth,
+          sourceHeight
+        )
+
+        const croppedDataUrl = canvas.toDataURL("image/png")
+        console.log("✅ cropImageFromSource: Crop complete")
+        resolve(croppedDataUrl)
+      }
+
+      img.onerror = () => {
+        console.error("❌ Failed to load image for cropping")
+        reject(new Error("Failed to load source image"))
+      }
+
+      img.src = imageDataUrl
+    })
+  } catch (error) {
+    console.error("❌ Error fetching image:", error)
+    throw new Error(
+      `Failed to fetch image: ${error instanceof Error ? error.message : "Unknown error"}`
+    )
+  }
+}
+
 // Helper function to crop screenshot (based on @reviewit approach) - runs in content script with DOM access
 export function processScreenshotCrop(
   dataUrl: string,

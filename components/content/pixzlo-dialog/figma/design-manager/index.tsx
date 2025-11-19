@@ -12,8 +12,8 @@ import FigmaFrameSelection from "./figma-frame-selection"
 import FigmaUrlInput from "./figma-url-input"
 import {
   convertTo16x9WithPadding,
+  cropImageFromSource,
   extractFigmaProperties,
-  processScreenshotCrop,
   type FigmaContextData
 } from "./figma-utils"
 
@@ -828,7 +828,7 @@ const FigmaDesignManager = memo(
 
       try {
         console.log(
-          "🎯 Using @reviewit-style screenshot capture with 40px margin..."
+          "🎯 Using direct image crop from Figma frame (no screen capture)..."
         )
 
         // Calculate element position in the displayed frame image
@@ -836,13 +836,29 @@ const FigmaDesignManager = memo(
           throw new Error("Frame image DOM element was not provided.")
         }
 
-        const frameImageRect = frameImage.getBoundingClientRect()
-        const scaleX =
-          frameImageRect.width / frameData.absoluteBoundingBox.width
-        const scaleY =
-          frameImageRect.height / frameData.absoluteBoundingBox.height
+        // Validate frameImageUrl is available
+        if (!frameImageUrl) {
+          throw new Error(
+            "Frame image URL is not available. Please try refreshing the frame."
+          )
+        }
 
-        // Calculate element position in the displayed image
+        console.log("🔍 Frame image URL available:", frameImageUrl.substring(0, 50) + "...")
+
+        // Get the actual displayed dimensions of the frame image
+        const displayedWidth = frameImage.offsetWidth
+        const displayedHeight = frameImage.offsetHeight
+
+        if (!displayedWidth || !displayedHeight) {
+          throw new Error("Frame image has invalid dimensions.")
+        }
+
+        const scaleX =
+          displayedWidth / frameData.absoluteBoundingBox.width
+        const scaleY =
+          displayedHeight / frameData.absoluteBoundingBox.height
+
+        // Calculate element position relative to the frame image (not viewport!)
         const elementRelativeX =
           (element.absoluteBoundingBox.x - frameData.absoluteBoundingBox.x) *
           scaleX
@@ -852,7 +868,7 @@ const FigmaDesignManager = memo(
         const elementWidth = element.absoluteBoundingBox.width * scaleX
         const elementHeight = element.absoluteBoundingBox.height * scaleY
 
-        // Calculate capture area with padding, bounded within the frame image
+        // Calculate capture area with 40px padding, bounded within the frame image
         const PADDING = 40
 
         // Calculate the capture area relative to the element, with padding
@@ -862,77 +878,45 @@ const FigmaDesignManager = memo(
         const captureHeight = elementHeight + PADDING * 2
 
         // Clamp the capture area to stay within the frame image boundaries
-        const clampedX = Math.max(0, Math.min(captureX, frameImageRect.width))
-        const clampedY = Math.max(0, Math.min(captureY, frameImageRect.height))
+        const clampedX = Math.max(0, captureX)
+        const clampedY = Math.max(0, captureY)
         const clampedWidth = Math.min(
           captureWidth,
-          frameImageRect.width - clampedX
+          displayedWidth - clampedX
         )
         const clampedHeight = Math.min(
           captureHeight,
-          frameImageRect.height - clampedY
+          displayedHeight - clampedY
         )
 
-        // Convert to absolute screen coordinates (within frame image only)
-        const captureArea = {
-          x: frameImageRect.left + clampedX,
-          y: frameImageRect.top + clampedY,
-          width: clampedWidth,
-          height: clampedHeight
-        }
-
-        console.log("📏 Calculated capture area (bounded to frame):", {
-          frameImageRect: {
-            left: frameImageRect.left,
-            top: frameImageRect.top,
-            width: frameImageRect.width,
-            height: frameImageRect.height
-          },
+        console.log("📏 Calculated capture area (relative to frame image):", {
+          displayedDimensions: { width: displayedWidth, height: displayedHeight },
+          scale: { x: scaleX, y: scaleY },
           elementPosition: { x: elementRelativeX, y: elementRelativeY },
-          captureArea
+          elementSize: { width: elementWidth, height: elementHeight },
+          captureArea: {
+            x: clampedX,
+            y: clampedY,
+            width: clampedWidth,
+            height: clampedHeight
+          }
         })
 
-        // Request screenshot from background
-        const response = await new Promise<{
-          success: boolean
-          screenshotDataUrl?: string
-          error?: string
-        }>((resolve) => {
-          chrome.runtime.sendMessage(
-            {
-              type: "CAPTURE_ELEMENT_SCREENSHOT",
-              area: captureArea,
-              scrollPosition: {
-                x: window.scrollX,
-                y: window.scrollY
-              }
-            },
-            (response) => {
-              if (chrome.runtime.lastError) {
-                resolve({
-                  success: false,
-                  error: chrome.runtime.lastError.message || "Extension error"
-                })
-              } else {
-                resolve(response || { success: false, error: "No response" })
-              }
-            }
-          )
-        })
-
-        if (!response.success || !response.screenshotDataUrl) {
-          setError(response.error || "Failed to capture screenshot")
-          return
-        }
-
-        console.log("✅ Screenshot captured, processing...")
-
-        // Crop screenshot to element area
-        const croppedImageUrl = await processScreenshotCrop(
-          response.screenshotDataUrl,
-          captureArea
+        // Crop directly from the frame image (already loaded from Figma)
+        // This avoids viewport/scroll issues entirely
+        console.log("🔍 Starting crop from source image...")
+        const croppedImageUrl = await cropImageFromSource(
+          frameImageUrl, // Use the source frame image URL
+          {
+            x: clampedX,
+            y: clampedY,
+            width: clampedWidth,
+            height: clampedHeight
+          },
+          displayedWidth,
+          displayedHeight
         )
-        console.log("✅ Element cropped from screenshot")
+        console.log("✅ Element cropped from frame image")
 
         // Convert to 16:9 aspect ratio with gray background
         const processedImageUrl =
