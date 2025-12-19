@@ -1,3 +1,5 @@
+import "~lib/console-silencer"
+
 import { PIXZLO_WEB_URL } from "~lib/constants"
 
 // Figma metadata cache (includes token)
@@ -30,39 +32,81 @@ const inFlightFrameRenderRequests = new Map<
 >()
 
 // Helper function to get Figma access token from metadata cache
-async function getFigmaAccessToken() {
-  // Check if we have cached metadata with a valid token
-  if (
-    figmaMetadataCache.data &&
-    figmaMetadataCache.data.token?.accessToken &&
-    figmaMetadataCache.expiresAt &&
-    new Date() < figmaMetadataCache.expiresAt
-  ) {
-    console.log("🔑 Using cached token from metadata")
-    return figmaMetadataCache.data.token.accessToken
-  }
+async function refreshFigmaToken() {
+  const refreshResponse = await fetch(
+    `${PIXZLO_WEB_URL}/api/integrations/figma/refresh`,
+    {
+      method: "POST",
+      credentials: "include"
+    }
+  )
 
-  // Fetch fresh metadata
-  console.log("🔑 Fetching Figma metadata to get token...")
-  const metadataResponse = await handleFigmaFetchMetadata({})
-
-  if (!metadataResponse.success || !metadataResponse.data) {
-    throw new Error(metadataResponse.error || "Failed to fetch Figma metadata")
-  }
-
-  const accessToken = metadataResponse.data.token?.accessToken
-  if (!accessToken) {
+  if (!refreshResponse.ok) {
+    const errorData = await refreshResponse.json().catch(() => ({}))
     throw new Error(
-      metadataResponse.data.token?.error || "Missing Figma access token"
+      errorData.error ||
+        `Failed to refresh Figma token (${refreshResponse.status})`
     )
   }
+}
 
-  // Cache metadata for 5 minutes
-  figmaMetadataCache.data = metadataResponse.data
-  figmaMetadataCache.expiresAt = new Date(Date.now() + 5 * 60 * 1000)
+async function fetchFigmaFileViaProxy(fileId: string) {
+  const doFetch = async () => {
+    const response = await fetch(
+      `${PIXZLO_WEB_URL}/api/integrations/figma/files/${fileId}`,
+      {
+        method: "GET",
+        credentials: "include"
+      }
+    )
 
-  console.log("🔑 Token cached from metadata successfully")
-  return accessToken
+    if (response.status === 401) {
+      throw new Error("Please log in to Pixzlo to access Figma.")
+    }
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      return {
+        ok: false as const,
+        status: response.status,
+        message:
+          errorData.error ||
+          `Figma file fetch failed (${response.status} ${response.statusText})`
+      }
+    }
+
+    return { ok: true as const, data: await response.json() }
+  }
+
+  // First attempt
+  let result = await doFetch()
+
+  // Auto-refresh once if the backend says Figma is not connected/needs reconnect
+  if (
+    !result.ok &&
+    result.message?.toLowerCase().includes("figma is not connected")
+  ) {
+    try {
+      await refreshFigmaToken()
+      result = await doFetch()
+    } catch (refreshError) {
+      // Fall through to throw the original/refresh error
+      result = {
+        ok: false,
+        status: 400,
+        message:
+          refreshError instanceof Error
+            ? refreshError.message
+            : "Failed to refresh Figma token"
+      } as const
+    }
+  }
+
+  if (!result.ok) {
+    throw new Error(result.message)
+  }
+
+  return result.data
 }
 
 // Helper function to parse Figma URL and extract file ID and node ID
@@ -218,38 +262,67 @@ function dataUrlToBlob(dataUrl: string): Blob | undefined {
 // Helper function to render a Figma frame/node as an image (based on reviewit implementation)
 async function renderFigmaNode(
   fileId: string,
-  nodeId: string,
-  token: string
+  nodeId: string
 ): Promise<string> {
-  // Use cache-busting headers only (version parameter not supported for images endpoint)
-  const response = await fetch(
-    `https://api.figma.com/v1/images/${fileId}?ids=${nodeId}&format=png&scale=2&use_absolute_bounds=true`,
-    {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Cache-Control": "no-cache, no-store, must-revalidate",
-        Pragma: "no-cache",
-        Expires: "0"
+  const doFetch = async () => {
+    const response = await fetch(
+      `${PIXZLO_WEB_URL}/api/integrations/figma/files/${fileId}/images?nodeId=${encodeURIComponent(
+        nodeId
+      )}&format=png&scale=2`,
+      {
+        method: "GET",
+        credentials: "include"
+      }
+    )
+
+    if (response.status === 401) {
+      throw new Error("Please log in to Pixzlo to access Figma.")
+    }
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      return {
+        ok: false as const,
+        status: response.status,
+        message:
+          errorData.error ||
+          `Figma image fetch failed (${response.status} ${response.statusText})`
       }
     }
-  )
 
-  if (!response.ok) {
-    throw new Error(`Failed to render Figma node: ${response.status}`)
+    return { ok: true as const, data: await response.json() }
   }
 
-  const data = await response.json()
+  let result = await doFetch()
 
-  if (data.err) {
-    throw new Error(`Figma API error: ${data.err}`)
+  if (
+    !result.ok &&
+    result.message?.toLowerCase().includes("figma is not connected")
+  ) {
+    try {
+      await refreshFigmaToken()
+      result = await doFetch()
+    } catch (refreshError) {
+      result = {
+        ok: false,
+        status: 400,
+        message:
+          refreshError instanceof Error
+            ? refreshError.message
+            : "Failed to refresh Figma token"
+      } as const
+    }
   }
 
-  const imageUrl = data.images[nodeId]
-  if (!imageUrl) {
-    throw new Error("No image URL returned from Figma API")
+  if (!result.ok) {
+    throw new Error(result.message)
   }
 
-  return imageUrl
+  if (!result.data?.imageUrl) {
+    throw new Error("No image URL returned from Pixzlo Figma proxy")
+  }
+
+  return result.data.imageUrl as string
 }
 
 // Linear Integration API calls from background script
@@ -649,6 +722,21 @@ async function handleLinearFetchMetadata(): Promise<{
         }
       }
 
+      if (response.status === 404) {
+        // Linear integration not connected - this is a normal state, not an error
+        console.log("📡 Linear integration not connected")
+        return {
+          success: true,
+          data: {
+            teams: [],
+            projects: [],
+            users: [],
+            workflowStates: [],
+            preference: undefined
+          }
+        }
+      }
+
       return {
         success: false,
         error: errorData.error || "Failed to fetch Linear metadata"
@@ -944,12 +1032,18 @@ async function handleLinearStatusCheckCached(): Promise<{
 
 async function handleFigmaFetchMetadata(data: {
   websiteUrl?: string | undefined
+  force?: boolean | undefined
 }): Promise<{
   success: boolean
   data?: FigmaMetadataResponse
   error?: string
 }> {
   try {
+    if (data.force) {
+      figmaMetadataCache.data = undefined
+      figmaMetadataCache.expiresAt = undefined
+    }
+
     const url = `${PIXZLO_WEB_URL}/api/integrations/figma/metadata${
       data.websiteUrl
         ? `?websiteUrl=${encodeURIComponent(data.websiteUrl)}`
@@ -1237,98 +1331,44 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.method === "GET_FILE") {
       const fileId = message.fileId
 
-      // Get decrypted token from backend, then call Figma API directly
-      console.log("Background script - Getting decrypted Figma token...")
+      ;(async () => {
+        try {
+          console.log("Background script - Fetching Figma file via Pixzlo API")
+          const figmaData = await fetchFigmaFileViaProxy(fileId)
 
-      getFigmaAccessToken()
-        .then(async (accessToken) => {
-          console.log(
-            "Background script - Got token, calling Figma API directly..."
-          )
-          // Add cache-busting parameter to ensure fresh data
-          const cacheBust = Date.now()
-          const figmaUrl = `https://api.figma.com/v1/files/${fileId}?version=${cacheBust}`
+          const documentNode = figmaData?.nodes
+            ? Object.values(figmaData.nodes)[0]
+            : undefined
 
-          console.log("Background script - Figma API URL:", figmaUrl)
-          console.log("Background script - Token available:", !!accessToken)
+          if (!documentNode) {
+            throw new Error("Invalid Figma file response from Pixzlo API")
+          }
 
-          // Validate token with Figma API (same as working Python script)
-          console.log("Background script - Validating Figma token...")
-
-          return fetch("https://api.figma.com/v1/me", {
-            headers: {
-              Authorization: `Bearer ${accessToken}`
-            }
-          }).then(async (validateResponse) => {
-            if (validateResponse.ok) {
-              const userInfo = await validateResponse.json()
-              console.log(
-                "Background script - Token validated for user:",
-                userInfo.email || userInfo.handle
-              )
-            } else {
-              console.error(
-                "Background script - Token validation failed:",
-                validateResponse.status
-              )
-              throw new Error(
-                `Token validation failed: ${validateResponse.status}`
-              )
-            }
-
-            // Get Figma file (same approach as Python script)
-            console.log(`Background script - Fetching file: ${fileId}`)
-
-            return fetch(figmaUrl, {
-              headers: {
-                Authorization: `Bearer ${accessToken}`,
-                "Cache-Control": "no-cache, no-store, must-revalidate",
-                Pragma: "no-cache",
-                Expires: "0"
-              }
-            }).then(async (response) => {
-              if (response.ok) {
-                const figmaData = await response.json()
-                console.log(
-                  "Background script - Got Figma file:",
-                  figmaData.name
-                )
-
-                // Extract frames from the file
-                const frames = extractFramesFromFigmaData(figmaData)
-                console.log(
-                  "Background script - Found frames:",
-                  frames.map((f) => f.name)
-                )
-
-                sendResponse({
-                  success: true,
-                  data: {
-                    id: fileId,
-                    name: figmaData.name,
-                    pages: figmaData.document?.children || [],
-                    frames: frames,
-                    document: figmaData.document
-                  }
-                })
-              } else {
-                console.error(
-                  "Background script - File access failed:",
-                  response.status
-                )
-                throw new Error(`File access failed: ${response.status}`)
-              }
-            })
-          })
-        })
-        .catch((error) => {
-          console.error("Background script - Figma API error:", error)
+          const frames = extractFramesFromFigmaData({
+            document: documentNode
+          } as any)
 
           sendResponse({
-            success: false,
-            error: error.message || "Failed to fetch Figma file"
+            success: true,
+            data: {
+              id: fileId,
+              name: figmaData?.name,
+              pages: (documentNode as any)?.children || [],
+              frames,
+              document: documentNode
+            }
           })
-        })
+        } catch (error) {
+          console.error("Background script - Figma API error:", error)
+          sendResponse({
+            success: false,
+            error:
+              error instanceof Error
+                ? error.message
+                : "Failed to fetch Figma file"
+          })
+        }
+      })()
 
       return true
     }
@@ -1399,26 +1439,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       )
     } else {
       frameRequest = (async () => {
-        const accessToken = await getFigmaAccessToken()
-
         console.log("Background script - Getting file data for frame...")
-        const fileResponse = await fetch(
-          `https://api.figma.com/v1/files/${fileId}`,
-          {
-            headers: {
-              Authorization: `Bearer ${accessToken}`
-            }
-          }
-        )
+        const figmaData = await fetchFigmaFileViaProxy(fileId)
 
-        if (!fileResponse.ok) {
-          throw new Error(`File access failed: ${fileResponse.status}`)
+        const documentNode = figmaData?.nodes
+          ? Object.values(figmaData.nodes)[0]
+          : undefined
+        const figmaDocument = { document: documentNode } as any
+
+        if (!documentNode) {
+          throw new Error("Invalid Figma file response from Pixzlo API")
         }
 
-        const figmaData = await fileResponse.json()
-
         // Find the specific frame/node
-        const frameData = findNodeById(figmaData, nodeId)
+        const frameData = findNodeById(figmaDocument, nodeId)
         if (!frameData) {
           throw new Error(`Frame with node-id ${nodeId} not found in file`)
         }
@@ -1441,7 +1475,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         // Render the frame as an image
         console.log("🔍 BACKGROUND: Starting to render frame image...")
-        const imageUrl = await renderFigmaNode(fileId, nodeId, accessToken)
+        const imageUrl = await renderFigmaNode(fileId, nodeId)
         console.log("🔍 BACKGROUND: Frame image rendered, URL:", imageUrl)
 
         const responseData: FrameRenderResponse = {
@@ -1524,12 +1558,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true
     }
 
-    // Get token and render element
-    getFigmaAccessToken()
-      .then(async (accessToken) => {
-        console.log(`Background script - Rendering element ${nodeId}`)
-
-        const imageUrl = await renderFigmaNode(fileId, nodeId, accessToken)
+    renderFigmaNode(fileId, nodeId)
+      .then((imageUrl) => {
         console.log("Background script - Got element image URL:", imageUrl)
 
         sendResponse({
@@ -1575,7 +1605,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 reject(new Error("Failed to convert blob to data URL"))
               }
             }
-            reader.onerror = () => reject(new Error("Failed to read image blob"))
+            reader.onerror = () =>
+              reject(new Error("Failed to read image blob"))
             reader.readAsDataURL(blob)
           })
       )
@@ -1650,35 +1681,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     const { fileId, nodeId } = message
 
-    // Get token and fetch image
-    getFigmaAccessToken()
-      .then(async (accessToken) => {
-        // Use the helper function to render Figma node as image (like reviewit)
-        console.log(
-          `Background script - Rendering Figma node ${nodeId} from file ${fileId}`
-        )
+    renderFigmaNode(fileId, nodeId)
+      .then((imageUrl) => {
+        console.log("Background script - Got Figma node image URL:", imageUrl)
 
-        try {
-          const imageUrl = await renderFigmaNode(fileId, nodeId, accessToken)
-          console.log("Background script - Got Figma node image URL:", imageUrl)
-
-          sendResponse({
-            success: true,
-            data: {
-              imageUrl: imageUrl
-            }
-          })
-        } catch (error) {
-          console.error(
-            "Background script - Failed to render Figma node:",
-            error
-          )
-
-          sendResponse({
-            success: false,
-            error: error.message || "Failed to render Figma node"
-          })
-        }
+        sendResponse({
+          success: true,
+          data: {
+            imageUrl: imageUrl
+          }
+        })
       })
       .catch((error) => {
         console.error("Background script - Image fetch error:", error)
@@ -1711,111 +1723,96 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return data.authUrl
       })
       .then((authUrl) => {
-        // Launch OAuth with custom popup dimensions
+        // Launch OAuth with custom popup dimensions (Chrome will position it)
         const popupWidth = 500
         const popupHeight = 700
 
-        // Get current screen dimensions to center the popup
-        chrome.system.display.getInfo((displays) => {
-          const primaryDisplay =
-            displays.find((display) => display.isPrimary) || displays[0]
-          const screenWidth = primaryDisplay.bounds.width
-          const screenHeight = primaryDisplay.bounds.height
+        chrome.windows.create(
+          {
+            url: authUrl,
+            type: "popup",
+            width: popupWidth,
+            height: popupHeight,
+            focused: true
+          },
+          (authWindow) => {
+            if (!authWindow) {
+              sendResponse({
+                success: false,
+                error: "Failed to create auth window"
+              })
+              return
+            }
 
-          const left = Math.round((screenWidth - popupWidth) / 2)
-          const top = Math.round((screenHeight - popupHeight) / 2)
-
-          chrome.windows.create(
-            {
-              url: authUrl,
-              type: "popup",
-              width: popupWidth,
-              height: popupHeight,
-              left: left,
-              top: top,
-              focused: true
-            },
-            (authWindow) => {
-              if (!authWindow) {
-                sendResponse({
-                  success: false,
-                  error: "Failed to create auth window"
-                })
-                return
-              }
-
-              // Listen for URL changes in the auth window
-              const onTabUpdated = (
-                tabId: number,
-                changeInfo: chrome.tabs.TabChangeInfo,
-                tab: chrome.tabs.Tab
-              ) => {
+            // Listen for URL changes in the auth window
+            const onTabUpdated = (
+              tabId: number,
+              changeInfo: chrome.tabs.TabChangeInfo,
+              tab: chrome.tabs.Tab
+            ) => {
+              if (tab.windowId === authWindow.id && changeInfo.url && tab.url) {
+                // Check if this is the callback URL (PIXZLO_WEB_URL or pixzlo.com /settings/integrations)
                 if (
-                  tab.windowId === authWindow.id &&
-                  changeInfo.url &&
-                  tab.url
+                  (tab.url.includes(
+                    `${PIXZLO_WEB_URL}/settings/integrations`
+                  ) ||
+                    tab.url.includes("pixzlo.com/settings/integrations")) &&
+                  (tab.url.includes("success=") || tab.url.includes("error="))
                 ) {
-                  // Check if this is the callback URL (PIXZLO_WEB_URL or pixzlo.com /settings/integrations)
-                  if (
-                    (tab.url.includes(
-                      `${PIXZLO_WEB_URL}/settings/integrations`
-                    ) ||
-                      tab.url.includes("pixzlo.com/settings/integrations")) &&
-                    (tab.url.includes("success=") || tab.url.includes("error="))
-                  ) {
-                    const totalTime = Date.now() - startTime
-                    console.log(
-                      `Background script - OAuth completed in ${totalTime}ms. URL: ${tab.url}`
-                    )
+                  const totalTime = Date.now() - startTime
+                  console.log(
+                    `Background script - OAuth completed in ${totalTime}ms. URL: ${tab.url}`
+                  )
 
-                    // Clean up listeners
-                    chrome.tabs.onUpdated.removeListener(onTabUpdated)
-                    chrome.windows.onRemoved.removeListener(onWindowRemoved)
+                  // Clean up listeners
+                  chrome.tabs.onUpdated.removeListener(onTabUpdated)
+                  chrome.windows.onRemoved.removeListener(onWindowRemoved)
 
-                    // Close the auth window
-                    chrome.windows.remove(authWindow.id)
+                  // Close the auth window
+                  chrome.windows.remove(authWindow.id)
 
-                    // Parse URL to get success/error status
-                    const urlObj = new URL(tab.url)
-                    const successParam = urlObj.searchParams.get("success")
-                    const errorParam = urlObj.searchParams.get("error")
+                  // Parse URL to get success/error status
+                  const urlObj = new URL(tab.url)
+                  const successParam = urlObj.searchParams.get("success")
+                  const errorParam = urlObj.searchParams.get("error")
 
-                    if (successParam) {
-                      console.log(`OAuth success: ${successParam}`)
-                      sendResponse({ success: true })
-                    } else if (errorParam) {
-                      console.log(`OAuth error: ${errorParam}`)
-                      sendResponse({
-                        success: false,
-                        error: decodeURIComponent(errorParam)
-                      })
-                    } else {
-                      sendResponse({
-                        success: false,
-                        error: "OAuth failed or was cancelled"
-                      })
-                    }
+                  if (successParam) {
+                    console.log(`OAuth success: ${successParam}`)
+                  figmaMetadataCache.data = undefined
+                  figmaMetadataCache.expiresAt = undefined
+                    sendResponse({ success: true })
+                  } else if (errorParam) {
+                    console.log(`OAuth error: ${errorParam}`)
+                    sendResponse({
+                      success: false,
+                      error: decodeURIComponent(errorParam)
+                    })
+                  } else {
+                    sendResponse({
+                      success: false,
+                      error: "OAuth failed or was cancelled"
+                    })
                   }
                 }
               }
-
-              // Handle window being closed manually
-              const onWindowRemoved = (windowId: number) => {
-                if (windowId === authWindow.id) {
-                  chrome.tabs.onUpdated.removeListener(onTabUpdated)
-                  chrome.windows.onRemoved.removeListener(onWindowRemoved)
-                  sendResponse({
-                    success: false,
-                    error: "OAuth cancelled by user"
-                  })
-                }
-              }
-
-              chrome.tabs.onUpdated.addListener(onTabUpdated)
-              chrome.windows.onRemoved.addListener(onWindowRemoved)
             }
-          )
-        })
+
+            // Handle window being closed manually
+            const onWindowRemoved = (windowId: number) => {
+              if (windowId === authWindow.id) {
+                chrome.tabs.onUpdated.removeListener(onTabUpdated)
+                chrome.windows.onRemoved.removeListener(onWindowRemoved)
+                sendResponse({
+                  success: false,
+                  error: "OAuth cancelled by user"
+                })
+              }
+            }
+
+            chrome.tabs.onUpdated.addListener(onTabUpdated)
+            chrome.windows.onRemoved.addListener(onWindowRemoved)
+          }
+        )
       })
       .catch((error) => {
         console.error("Background script - OAuth failed:", error)
@@ -1829,11 +1826,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "capture-screen") {
+    if (!sender.tab?.windowId) {
+      sendResponse({
+        success: false,
+        error: "Capture denied: no active tab context"
+      })
+      return true
+    }
+
     chrome.tabs.captureVisibleTab(
-      sender.tab?.windowId ?? chrome.windows.WINDOW_ID_CURRENT,
+      sender.tab.windowId,
       { format: "png" },
       (dataUrl) => {
-        sendResponse({ dataUrl })
+        sendResponse({ dataUrl, success: true })
       }
     )
     return true
@@ -1916,9 +1921,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         const parseBrowserInfo = (browserInfo) => {
           if (!browserInfo) return undefined
-          const name = browserInfo.name || "Unknown"
-          const version = browserInfo.version || "Unknown"
-          return `${name} ${version}`
+          return {
+            name: browserInfo.name || "Unknown",
+            version: browserInfo.version || "Unknown",
+            userAgent: browserInfo.userAgent || undefined
+          }
         }
 
         // Get workspace ID
@@ -1992,6 +1999,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
 
         // Prepare batch create body
+        const deviceInfo = payload?.metadata?.device
+          ? {
+              device: payload.metadata.device,
+              os: "unknown",
+              version: undefined
+            }
+          : undefined
+
         const batchBody = {
           workspace_id: workspaceId,
           title,
@@ -2000,7 +2015,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           issue_type: issueType,
           website_url: websiteUrl,
           figma_link: payload?.figma?.figmaUrl,
-          device_info: payload?.metadata?.device,
+          device_info: deviceInfo,
           browser_info: parseBrowserInfo(payload?.browserInfo),
           screen_resolution: sanitizeDim(payload?.metadata?.screenResolution),
           viewport_size: sanitizeDim(payload?.metadata?.viewportSize),

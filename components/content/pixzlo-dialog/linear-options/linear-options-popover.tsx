@@ -92,7 +92,7 @@ export function LinearOptionsPopover({
         </Button>
       </PopoverTrigger>
       <PopoverContent
-        className="w-96 rounded-lg border border-gray-200 bg-white shadow-lg"
+        className="w-96 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg"
         side="top"
         align="start"
         sideOffset={8}

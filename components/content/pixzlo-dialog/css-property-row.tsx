@@ -167,7 +167,7 @@ const CSSPropertyRow = memo(
         </div>
 
         {/* Design value */}
-        <div className="design-column">
+        <div>
           {figmaValue && figmaValue !== "undefined" ? (
             <PropertyValueDisplay
               value={comparisonResult.normalizedFigmaValue || figmaValue}

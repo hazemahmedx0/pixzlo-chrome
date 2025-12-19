@@ -83,11 +83,13 @@ export class FigmaService {
   }
 
   async getMetadata(
-    websiteUrl: string | null
+    websiteUrl: string | null,
+    options?: { force?: boolean }
   ): Promise<FigmaApiResponse<FigmaMetadata>> {
     const cacheValidForMs = 5 * 60 * 1000
 
     if (
+      !options?.force &&
       this.cachedMetadata &&
       this.cachedMetadata.websiteUrl === websiteUrl &&
       Date.now() - this.cachedMetadata.fetchedAt < cacheValidForMs
@@ -97,7 +99,7 @@ export class FigmaService {
 
     const response = await this.callBackground<FigmaMetadata>({
       type: "figma-fetch-metadata",
-      data: { websiteUrl }
+      data: { websiteUrl, force: Boolean(options?.force) }
     })
 
     if (response.success && response.data) {
@@ -162,7 +164,7 @@ export class FigmaService {
     FigmaApiResponse<FigmaMetadata>
   > {
     this.clearMetadataCache()
-    return this.getMetadata(window.location.href)
+    return this.getMetadata(window.location.href, { force: true })
   }
 
   async updatePreference(update: {

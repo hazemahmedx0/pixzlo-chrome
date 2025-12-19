@@ -24,7 +24,7 @@ const CodeValueDisplay = memo(
     return (
       <div className="relative inline-block text-left">
         <button
-          className="flex items-center justify-center gap-1 text-xs font-medium uppercase text-gray-350 transition-colors"
+          className="flex items-center justify-start gap-1 uppercase text-gray-350 transition-colors"
           onClick={handleToggle}
           type="button">
           CODE ({mode === "raw" ? "R" : "A"})

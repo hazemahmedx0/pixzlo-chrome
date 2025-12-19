@@ -78,7 +78,7 @@ const Footer = memo(
     }, [isConnected, metadata.preference, metadata.teams, metadata.projects])
 
     // Use the enhanced submission hook with preferences
-    const { handleSubmit: handleSubmitWithPreferences } =
+    const { handleSubmit: handleSubmitWithPreferences, isSubmitting } =
       useIssueSubmissionWithPreferences(
         onSubmit,
         shareToLinear && isConnected ? linearSelections : undefined
@@ -177,8 +177,9 @@ const Footer = memo(
             </Button>
             <Button
               onClick={handleSubmit}
+              disabled={isSubmitting}
               className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700">
-              Create issue
+              {isSubmitting ? "Creating issue..." : "Create issue"}
             </Button>
           </div>
         </div>

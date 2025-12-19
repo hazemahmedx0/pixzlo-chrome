@@ -1,3 +1,5 @@
+import "@/lib/console-silencer"
+
 import EnhancedElementSelector from "@/components/content/enhanced-element-selector"
 import { usePixzloDialogStore } from "@/stores/pixzlo-dialog"
 import cssText from "data-text:~globals.css"
