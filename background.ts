@@ -1,6 +1,53 @@
 import "~lib/console-silencer"
 
-import { PIXZLO_WEB_URL } from "~lib/constants"
+import type { FigmaFile, FigmaNode } from "@/types/figma"
+
+import {
+  EXTENSION_GOODBYE_URL,
+  EXTENSION_WELCOME_URL,
+  PIXZLO_WEB_URL
+} from "~lib/constants"
+import {
+  clearTokenCache,
+  extractElementsFromNode as directExtractElements,
+  fetchFigmaFile as directFetchFigmaFile,
+  findNodeById as directFindNodeById,
+  renderFigmaNode as directRenderFigmaNode
+} from "~lib/figma-direct-api"
+
+// ============================================================================
+// Extension Install/Uninstall Handlers
+// ============================================================================
+
+/**
+ * Handle extension installation events
+ * - On fresh install: Open the welcome page
+ * - On update: Could show changelog (optional)
+ */
+chrome.runtime.onInstalled.addListener((details): void => {
+  // Set the uninstall URL (works for all install reasons)
+  chrome.runtime.setUninstallURL(EXTENSION_GOODBYE_URL).catch((error) => {
+    console.error("[Pixzlo] Failed to set uninstall URL:", error)
+  })
+
+  if (details.reason === "install") {
+    // Fresh installation - open welcome page
+    console.log("[Pixzlo] Extension installed, opening welcome page")
+    chrome.tabs.create({ url: EXTENSION_WELCOME_URL }).catch((error) => {
+      console.error("[Pixzlo] Failed to open welcome page:", error)
+    })
+  } else if (details.reason === "update") {
+    // Extension updated - could show changelog if needed
+    console.log(
+      "[Pixzlo] Extension updated from version:",
+      details.previousVersion
+    )
+  }
+})
+
+// ============================================================================
+// Figma API Configuration
+// ============================================================================
 
 // Figma metadata cache (includes token)
 let figmaMetadataCache: {
@@ -15,8 +62,8 @@ let figmaMetadataCache: {
 interface FrameRenderResponse {
   fileId: string
   nodeId: string
-  frameData: any
-  elements: any[]
+  frameData: FigmaNode
+  elements: ReturnType<typeof directExtractElements>
   imageUrl: string
   fileName: string
 }
@@ -31,82 +78,28 @@ const inFlightFrameRenderRequests = new Map<
   Promise<FrameRenderResponse>
 >()
 
-// Helper function to get Figma access token from metadata cache
-async function refreshFigmaToken() {
-  const refreshResponse = await fetch(
-    `${PIXZLO_WEB_URL}/api/integrations/figma/refresh`,
-    {
-      method: "POST",
-      credentials: "include"
-    }
-  )
-
-  if (!refreshResponse.ok) {
-    const errorData = await refreshResponse.json().catch(() => ({}))
-    throw new Error(
-      errorData.error ||
-        `Failed to refresh Figma token (${refreshResponse.status})`
-    )
-  }
+/**
+ * Fetch Figma file directly via Figma API (with token from backend)
+ * This reduces server load by making direct API calls from the extension
+ */
+async function fetchFigmaFileDirect(fileId: string): Promise<FigmaFile> {
+  console.log("[Figma Direct] Fetching file directly from Figma API:", fileId)
+  return directFetchFigmaFile(fileId)
 }
 
-async function fetchFigmaFileViaProxy(fileId: string) {
-  const doFetch = async () => {
-    const response = await fetch(
-      `${PIXZLO_WEB_URL}/api/integrations/figma/files/${fileId}`,
-      {
-        method: "GET",
-        credentials: "include"
-      }
-    )
-
-    if (response.status === 401) {
-      throw new Error("Please log in to Pixzlo to access Figma.")
-    }
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}))
-      return {
-        ok: false as const,
-        status: response.status,
-        message:
-          errorData.error ||
-          `Figma file fetch failed (${response.status} ${response.statusText})`
-      }
-    }
-
-    return { ok: true as const, data: await response.json() }
-  }
-
-  // First attempt
-  let result = await doFetch()
-
-  // Auto-refresh once if the backend says Figma is not connected/needs reconnect
-  if (
-    !result.ok &&
-    result.message?.toLowerCase().includes("figma is not connected")
-  ) {
-    try {
-      await refreshFigmaToken()
-      result = await doFetch()
-    } catch (refreshError) {
-      // Fall through to throw the original/refresh error
-      result = {
-        ok: false,
-        status: 400,
-        message:
-          refreshError instanceof Error
-            ? refreshError.message
-            : "Failed to refresh Figma token"
-      } as const
-    }
-  }
-
-  if (!result.ok) {
-    throw new Error(result.message)
-  }
-
-  return result.data
+/**
+ * Render Figma node directly via Figma API
+ */
+async function renderFigmaNodeDirect(
+  fileId: string,
+  nodeId: string
+): Promise<string> {
+  console.log(
+    "[Figma Direct] Rendering node directly from Figma API:",
+    fileId,
+    nodeId
+  )
+  return directRenderFigmaNode(fileId, nodeId, "png", 2)
 }
 
 // Helper function to parse Figma URL and extract file ID and node ID
@@ -172,70 +165,26 @@ function extractFramesFromFigmaData(data: any): Array<{
   return frames
 }
 
-// Helper function to extract elements from a specific frame/node
-function extractElementsFromNode(
-  node: any,
-  frameId: string
-): Array<{
-  id: string
-  name: string
-  type: string
-  absoluteBoundingBox: any
-  relativeTransform: any
-  constraints: any
-  depth: number
-}> {
-  const elements = []
-
-  function traverseNode(currentNode, depth = 0) {
-    // Only include interactive elements and visible elements
-    if (currentNode.id !== frameId && currentNode.visible !== false) {
-      const element = {
-        id: currentNode.id,
-        name: currentNode.name,
-        type: currentNode.type,
-        absoluteBoundingBox: currentNode.absoluteBoundingBox,
-        relativeTransform: currentNode.relativeTransform,
-        constraints: currentNode.constraints,
-        depth: depth
-      }
-
-      // Add element if it has bounding box
-      if (currentNode.absoluteBoundingBox) {
-        elements.push(element)
-      }
-    }
-
-    // Recursively traverse children
-    if (currentNode.children) {
-      currentNode.children.forEach((child) => traverseNode(child, depth + 1))
-    }
+// Use imported helper functions from figma-direct-api
+const extractElementsFromNode = directExtractElements
+const findNodeById = (
+  data: { nodes?: Record<string, FigmaNode>; document?: FigmaNode },
+  nodeId: string
+): FigmaNode | undefined => {
+  // Handle FigmaFile format (with nodes object)
+  if (data.nodes) {
+    return directFindNodeById(data as FigmaFile, nodeId)
   }
-
-  traverseNode(node)
-  return elements
-}
-
-// Helper function to find a specific node by ID in Figma data
-function findNodeById(data: any, nodeId: string): any | undefined {
-  function searchNode(node: any): any | undefined {
-    if (node.id === nodeId) {
-      return node
+  // Handle legacy format with document property (for extractFramesFromFigmaData)
+  if (data.document) {
+    const tempFile: FigmaFile = {
+      key: "",
+      name: "",
+      thumbnail_url: "",
+      last_modified: "",
+      nodes: { root: data.document }
     }
-    if (node.children) {
-      for (const child of node.children) {
-        const found = searchNode(child)
-        if (found) return found
-      }
-    }
-    return undefined
-  }
-
-  if (data.document && data.document.children) {
-    for (const page of data.document.children) {
-      const found = searchNode(page)
-      if (found) return found
-    }
+    return directFindNodeById(tempFile, nodeId)
   }
   return undefined
 }
@@ -259,71 +208,8 @@ function dataUrlToBlob(dataUrl: string): Blob | undefined {
   }
 }
 
-// Helper function to render a Figma frame/node as an image (based on reviewit implementation)
-async function renderFigmaNode(
-  fileId: string,
-  nodeId: string
-): Promise<string> {
-  const doFetch = async () => {
-    const response = await fetch(
-      `${PIXZLO_WEB_URL}/api/integrations/figma/files/${fileId}/images?nodeId=${encodeURIComponent(
-        nodeId
-      )}&format=png&scale=2`,
-      {
-        method: "GET",
-        credentials: "include"
-      }
-    )
-
-    if (response.status === 401) {
-      throw new Error("Please log in to Pixzlo to access Figma.")
-    }
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}))
-      return {
-        ok: false as const,
-        status: response.status,
-        message:
-          errorData.error ||
-          `Figma image fetch failed (${response.status} ${response.statusText})`
-      }
-    }
-
-    return { ok: true as const, data: await response.json() }
-  }
-
-  let result = await doFetch()
-
-  if (
-    !result.ok &&
-    result.message?.toLowerCase().includes("figma is not connected")
-  ) {
-    try {
-      await refreshFigmaToken()
-      result = await doFetch()
-    } catch (refreshError) {
-      result = {
-        ok: false,
-        status: 400,
-        message:
-          refreshError instanceof Error
-            ? refreshError.message
-            : "Failed to refresh Figma token"
-      } as const
-    }
-  }
-
-  if (!result.ok) {
-    throw new Error(result.message)
-  }
-
-  if (!result.data?.imageUrl) {
-    throw new Error("No image URL returned from Pixzlo Figma proxy")
-  }
-
-  return result.data.imageUrl as string
-}
+// Use direct Figma API for rendering nodes
+const renderFigmaNode = renderFigmaNodeDirect
 
 // Linear Integration API calls from background script
 interface LinearStatusResponse {
@@ -1166,6 +1052,8 @@ async function handleFigmaUpdatePreference(data: {
 
 async function handleFigmaCreateDesignLink(data: {
   websiteUrl?: string | undefined
+  pageTitle?: string | undefined
+  faviconUrl?: string | undefined
   linkData: {
     figma_file_id: string
     figma_frame_id: string
@@ -1188,6 +1076,8 @@ async function handleFigmaCreateDesignLink(data: {
       credentials: "include",
       body: JSON.stringify({
         websiteUrl,
+        pageTitle: data.pageTitle, // Pass the page title from document.title
+        faviconUrl: data.faviconUrl, // Pass the favicon URL detected from the page
         ...data.linkData
       })
     })
@@ -1268,8 +1158,44 @@ async function handleFigmaDeleteDesignLink(data: {
   }
 }
 
+// ============================================================================
+// Extension Pinned State Handler
+// ============================================================================
+
+/**
+ * Check if the extension is pinned to the toolbar.
+ * Uses chrome.action.getUserSettings() API (Chrome 91+).
+ */
+async function checkExtensionPinnedState(): Promise<boolean> {
+  try {
+    const settings = await chrome.action.getUserSettings()
+    return settings.isOnToolbar
+  } catch (error) {
+    console.error("[Pixzlo] Failed to check pinned state:", error)
+    return false
+  }
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   console.log("🔧 Background received message:", message)
+
+  // Handle extension pinned state check
+  if (message.type === "GET_PINNED_STATE") {
+    console.log("📌 Checking extension pinned state...")
+    checkExtensionPinnedState()
+      .then((isPinned) => {
+        console.log("📌 Extension pinned state:", isPinned)
+        sendResponse({ success: true, isPinned })
+      })
+      .catch((error) => {
+        console.error("❌ Failed to check pinned state:", error)
+        sendResponse({
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error"
+        })
+      })
+    return true // Keep message channel open for async response
+  }
 
   // Handle Linear integration status check
   if (message.type === "linear-check-status") {
@@ -1325,6 +1251,56 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       })
     return true
   }
+
+  // Handle fetching pages tree for hierarchical page selection
+  if (message.type === "FETCH_PAGES_TREE") {
+    console.log("Background script - Fetching pages tree")
+    ;(async () => {
+      try {
+        const response = await fetch(`${PIXZLO_WEB_URL}/api/websites/tree`, {
+          method: "GET",
+          credentials: "include"
+        })
+
+        if (!response.ok) {
+          if (response.status === 401) {
+            sendResponse({
+              success: false,
+              error: "Please log in to Pixzlo to access pages."
+            })
+            return
+          }
+
+          const errorData = await response.json().catch(() => ({}))
+          sendResponse({
+            success: false,
+            error:
+              (errorData as { error?: string }).error ||
+              `Failed to fetch pages (${response.status})`
+          })
+          return
+        }
+
+        const data = await response.json()
+        sendResponse({
+          success: true,
+          data: data
+        })
+      } catch (error) {
+        console.error("Background script - Pages tree fetch error:", error)
+        sendResponse({
+          success: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Failed to fetch pages tree"
+        })
+      }
+    })()
+
+    return true
+  }
+
   if (message.type === "FIGMA_API_CALL") {
     console.log("Background script - Figma API call requested:", message.method)
 
@@ -1333,15 +1309,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       ;(async () => {
         try {
-          console.log("Background script - Fetching Figma file via Pixzlo API")
-          const figmaData = await fetchFigmaFileViaProxy(fileId)
+          console.log("Background script - Fetching Figma file directly")
+          const figmaData = await fetchFigmaFileDirect(fileId)
 
           const documentNode = figmaData?.nodes
             ? Object.values(figmaData.nodes)[0]
             : undefined
 
           if (!documentNode) {
-            throw new Error("Invalid Figma file response from Pixzlo API")
+            throw new Error("Invalid Figma file response")
           }
 
           const frames = extractFramesFromFigmaData({
@@ -1439,8 +1415,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       )
     } else {
       frameRequest = (async () => {
-        console.log("Background script - Getting file data for frame...")
-        const figmaData = await fetchFigmaFileViaProxy(fileId)
+        console.log(
+          "Background script - Getting file data directly from Figma..."
+        )
+        const figmaData = await fetchFigmaFileDirect(fileId)
 
         const documentNode = figmaData?.nodes
           ? Object.values(figmaData.nodes)[0]
@@ -1448,7 +1426,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const figmaDocument = { document: documentNode } as any
 
         if (!documentNode) {
-          throw new Error("Invalid Figma file response from Pixzlo API")
+          throw new Error("Invalid Figma file response")
         }
 
         // Find the specific frame/node
@@ -1778,8 +1756,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
                   if (successParam) {
                     console.log(`OAuth success: ${successParam}`)
-                  figmaMetadataCache.data = undefined
-                  figmaMetadataCache.expiresAt = undefined
+                    figmaMetadataCache.data = undefined
+                    figmaMetadataCache.expiresAt = undefined
                     sendResponse({ success: true })
                   } else if (errorParam) {
                     console.log(`OAuth error: ${errorParam}`)
@@ -2028,7 +2006,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                   figma_frame_id: payload.figma.frameId,
                   frame_name: payload.figma.frameName,
                   frame_url: payload.figma.figmaUrl,
-                  thumbnail_url: payload.figma.thumbnailUrl
+                  thumbnail_url: payload.figma.thumbnailUrl,
+                  page_url: websiteUrl
                 }
               : undefined,
           linear_enabled: payload?.linearEnabled || false,

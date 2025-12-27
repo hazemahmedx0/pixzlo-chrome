@@ -6,6 +6,7 @@ import type {
   FigmaFile,
   FigmaNode
 } from "@/types/figma"
+import { getFaviconUrl } from "@/utils/get-favicon-url"
 
 interface FigmaMetadata {
   integration: FigmaAuthStatus["integration"] | null
@@ -190,12 +191,21 @@ export class FigmaService {
     thumbnail_url?: string
   }): Promise<FigmaApiResponse<FigmaDesignLink>> {
     const currentUrl = window.location.href
+    // Get the actual page title from the document to use as the page name
+    const pageTitle = document.title || undefined
+    // Get the favicon URL from the page (explicit link tags or fallback to /favicon.ico)
+    const faviconUrl = getFaviconUrl()
 
     const response = await this.callBackground<FigmaDesignLink>({
       type: "figma-create-design-link",
       data: {
         websiteUrl: currentUrl,
-        linkData
+        pageTitle, // Pass the page title from document.title
+        faviconUrl, // Pass the favicon URL detected from the page
+        linkData: {
+          ...linkData,
+          page_url: currentUrl
+        }
       }
     })
 

@@ -1,6 +1,7 @@
 import "@/lib/console-silencer"
 
 import EnhancedElementSelector from "@/components/content/enhanced-element-selector"
+import { PIXZLO_APP_URL } from "@/lib/constants"
 import { usePixzloDialogStore } from "@/stores/pixzlo-dialog"
 import cssText from "data-text:~globals.css"
 import type { PlasmoCSConfig } from "plasmo"
@@ -8,6 +9,85 @@ import { useCallback, useEffect, useState } from "react"
 
 export const config: PlasmoCSConfig = {
   matches: ["<all_urls>"]
+}
+
+// ============================================================================
+// Pixzlo Web Page Communication (for /welcome page pinned state)
+// ============================================================================
+
+/**
+ * Handle postMessage from the Pixzlo web app (welcome page).
+ * This allows the web page to request the extension's pinned state.
+ */
+function setupWelcomePageCommunication(): void {
+  const handleWindowMessage = (event: MessageEvent): void => {
+    // Only accept messages from the Pixzlo web app
+    const isPixzloOrigin =
+      event.origin === PIXZLO_APP_URL ||
+      event.origin === "http://localhost:3001" ||
+      event.origin === "http://localhost:3000"
+
+    if (!isPixzloOrigin) return
+
+    // Validate message structure
+    if (
+      !event.data ||
+      typeof event.data !== "object" ||
+      event.data.source !== "pixzlo-web"
+    ) {
+      return
+    }
+
+    // Handle pinned state request
+    if (event.data.type === "REQUEST_PINNED_STATE") {
+      console.log("📌 Received pinned state request from web page")
+
+      // Query background script for pinned state
+      chrome.runtime
+        .sendMessage({ type: "GET_PINNED_STATE" })
+        .then((response: { success: boolean; isPinned?: boolean }) => {
+          // Send response back to the web page via postMessage
+          window.postMessage(
+            {
+              source: "pixzlo-extension",
+              type: "PINNED_STATE",
+              payload: {
+                isPinned: response.success ? response.isPinned : false
+              }
+            },
+            event.origin
+          )
+        })
+        .catch((error: Error) => {
+          console.error("📌 Failed to get pinned state:", error)
+          // Send false as fallback
+          window.postMessage(
+            {
+              source: "pixzlo-extension",
+              type: "PINNED_STATE",
+              payload: {
+                isPinned: false
+              }
+            },
+            event.origin
+          )
+        })
+    }
+  }
+
+  window.addEventListener("message", handleWindowMessage)
+}
+
+// Initialize welcome page communication if on Pixzlo domain
+const currentHost = window.location.host
+const isPixzloDomain =
+  currentHost === "app.pixzlo.com" ||
+  currentHost === "localhost:3001" ||
+  currentHost === "localhost:3000"
+
+if (isPixzloDomain) {
+  setupWelcomePageCommunication()
+  console.log("📌 Welcome page communication initialized for:", currentHost)
 }
 
 // Signal that content script is loaded

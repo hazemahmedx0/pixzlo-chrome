@@ -191,8 +191,9 @@ const FigmaDesignManager = memo(
       return undefined
     }, [selectedDesign, frameData, frameImageUrl, figmaUrl, figmaService])
 
-    const currentWebsiteOrigin = useMemo(() => {
-      return window.location.origin
+    // Use full URL with path to correctly filter design links per page
+    const currentWebsiteUrl = useMemo(() => {
+      return window.location.href
     }, [])
 
     // Initialize state from initialContext when changing design
@@ -702,7 +703,7 @@ const FigmaDesignManager = memo(
         const hasFreshMetadata =
           metadataLastFetched !== undefined &&
           Date.now() - metadataLastFetched < 5 * 60 * 1000 &&
-          metadata.website?.url === currentWebsiteOrigin
+          metadata.website?.url === currentWebsiteUrl
 
         // Don't do anything if already loading
         if (isLoadingMetadata) {
@@ -711,15 +712,15 @@ const FigmaDesignManager = memo(
         }
 
         if (hasFreshMetadata) {
-          console.log("✅ Metadata already fresh for", currentWebsiteOrigin)
+          console.log("✅ Metadata already fresh for", currentWebsiteUrl)
         }
 
         setIsAutoLoading(true)
 
         // Fetch metadata once if not fresh
         if (!hasFreshMetadata) {
-          console.log("📡 Fetching fresh metadata for:", currentWebsiteOrigin)
-          await fetchMetadata(currentWebsiteOrigin)
+          console.log("📡 Fetching fresh metadata for:", currentWebsiteUrl)
+          await fetchMetadata(currentWebsiteUrl)
         }
 
         // Set frames from metadata once
@@ -756,7 +757,7 @@ const FigmaDesignManager = memo(
       isOpen,
       metadataLastFetched,
       metadata.website?.url,
-      currentWebsiteOrigin,
+      currentWebsiteUrl,
       isLoadingMetadata,
       fetchMetadata,
       replaceFrames,

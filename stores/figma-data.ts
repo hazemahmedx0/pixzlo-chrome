@@ -229,7 +229,8 @@ export const useFigmaDataStore = create<FigmaDataState>((set, get) => ({
       return false
     }
 
-    await get().refreshMetadata()
+    // Refresh with current full URL to get the design links for this specific page
+    await get().refreshMetadata(window.location.href, { force: true })
     return true
   },
 
@@ -242,7 +243,8 @@ export const useFigmaDataStore = create<FigmaDataState>((set, get) => ({
       return false
     }
 
-    await get().refreshMetadata()
+    // Refresh with current full URL to update the design links for this specific page
+    await get().refreshMetadata(window.location.href, { force: true })
     return true
   },
 

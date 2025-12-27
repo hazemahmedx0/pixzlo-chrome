@@ -523,7 +523,7 @@ export class CaptureService {
     )
     this.detachedElements.forEach(({ element, parent, nextSibling }) => {
       try {
-        if (nextSibling) {
+        if (nextSibling && parent.contains(nextSibling)) {
           parent.insertBefore(element, nextSibling)
         } else {
           parent.appendChild(element)
