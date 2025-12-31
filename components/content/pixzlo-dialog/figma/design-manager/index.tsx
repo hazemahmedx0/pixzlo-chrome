@@ -86,14 +86,18 @@ const FigmaDesignManager = memo(
       isLoadingMetadata,
       metadataLastFetched,
       fetchMetadata,
+      refreshMetadata,
       updatePreference
     } = useFigmaDataStore()
     const { setCurrentFrame, replaceFrames } = useFigmaToolbarStore()
     const figmaService = FigmaService.getInstance()
 
+    // Use metadata.designLinks from store directly for immediate reactivity
+    // This ensures the component sees new designs immediately after refreshMetadata
+    // without waiting for parent component re-render to pass updated props
     const safeExistingDesigns = useMemo(
-      () => existingDesigns ?? [],
-      [existingDesigns]
+      () => metadata.designLinks ?? existingDesigns ?? [],
+      [metadata.designLinks, existingDesigns]
     )
 
     const preferredFrameId = metadata.preference?.lastUsedFrameId ?? null
@@ -191,9 +195,11 @@ const FigmaDesignManager = memo(
       return undefined
     }, [selectedDesign, frameData, frameImageUrl, figmaUrl, figmaService])
 
-    // Use full URL with path to correctly filter design links per page
+    // Use normalized URL (origin + pathname only) to match API response format
+    // This prevents infinite loops caused by query params/hash mismatch
     const currentWebsiteUrl = useMemo(() => {
-      return window.location.href
+      const url = new URL(window.location.href)
+      return url.origin + url.pathname
     }, [])
 
     // Initialize state from initialContext when changing design
@@ -312,6 +318,8 @@ const FigmaDesignManager = memo(
       setPreviousViewMode(viewMode)
       setViewMode("add-new")
       setError(null)
+      // Clear figmaUrl so the input starts empty for adding a new frame
+      setFigmaUrl("")
       // Don't clear frame data - we need it to restore the view if user cancels
       // setSelectedDesignId(null)
       // setFrameData(null)
@@ -361,10 +369,23 @@ const FigmaDesignManager = memo(
 
     const handleFigmaUrlSubmit = useCallback(
       async (overrideUrl?: string): Promise<void> => {
-        // Prevent API calls when in change design mode
-        if (isChangeDesignMode) {
+        // Determine the URL we're about to fetch
+        const urlToFetch = overrideUrl?.trim() || figmaUrlRef.current.trim()
+
+        // Prevent API calls when in change design mode, UNLESS:
+        // 1. User explicitly clicked "Add more frames" (previousViewMode is set), OR
+        // 2. User is switching to a DIFFERENT frame (URL differs from cached)
+        const isSameAsCachedUrl =
+          initialContext?.figmaUrl &&
+          urlToFetch === initialContext.figmaUrl.trim()
+
+        if (
+          isChangeDesignMode &&
+          previousViewMode === null &&
+          isSameAsCachedUrl
+        ) {
           console.log(
-            "🚫 Skipping API call - in change design mode with cached data"
+            "🚫 Skipping API call - in change design mode with cached data for same URL"
           )
           return
         }
@@ -548,34 +569,32 @@ const FigmaDesignManager = memo(
           )
           // Don't close the dialog on error - let user try again
           console.log("🔍 Error occurred but keeping dialog open for retry")
-        } finally {
-          setIsProcessing(false)
-          figmaUrlRequestRef.current = null
-          // Clear figma flow active flag
-          try {
-            usePixzloDialogStore.getState().setIsFigmaFlowActive(false)
-          } catch (error) {
-            console.warn("Failed to reset Figma flow flag", error)
-          }
+      } finally {
+        setIsProcessing(false)
+        figmaUrlRequestRef.current = null
+        // Clear figma flow active flag
+        try {
+          usePixzloDialogStore.getState().setIsFigmaFlowActive(false)
+        } catch (error) {
+          console.warn("Failed to reset Figma flow flag", error)
         }
-      },
-      [figmaService, isProcessing]
-    )
+      }
+    },
+    [
+      figmaService,
+      isProcessing,
+      isChangeDesignMode,
+      previousViewMode,
+      initialContext
+    ]
+  )
 
     const loadDesignFromLink = useCallback(
       async (design: FigmaDesignLink): Promise<void> => {
-        // Prevent API calls when in change design mode
-        if (isChangeDesignMode) {
-          console.log(
-            "🚫 Skipping loadDesignFromLink - in change design mode with cached data"
-          )
-          return
-        }
-
         setSelectedDesignId(design.id)
         await handleFigmaUrlSubmit(design.frame_url)
       },
-      [handleFigmaUrlSubmit, isChangeDesignMode]
+      [handleFigmaUrlSubmit]
     )
 
     const handleFrameSelect = (frame: FigmaNode): void => {
@@ -604,6 +623,11 @@ const FigmaDesignManager = memo(
 
         if (response.success) {
           console.log("✅ Design link created successfully")
+
+          // IMPORTANT: immediately refresh metadata/design-links for this page so
+          // the next "Add design reference" (without a full page refresh) sees
+          // the newly linked frame.
+          await refreshMetadata(currentWebsiteUrl, { force: true })
 
           // Create context data with file and frame IDs for issue submission
           const contextData: FigmaContextData = {
@@ -647,6 +671,8 @@ const FigmaDesignManager = memo(
       selectedFrame,
       figmaUrl,
       figmaService,
+      refreshMetadata,
+      currentWebsiteUrl,
       onDesignSelected,
       onClose
     ])
@@ -657,20 +683,20 @@ const FigmaDesignManager = memo(
         setSelectedDesignId(null)
         autoLoadTriggeredRef.current = false
         figmaUrlRequestRef.current = null
-        previousDesignCountRef.current = orderedExistingDesigns.length
+        // Reset so we auto-load the stored design again the next time the modal opens.
+        previousDesignCountRef.current = 0
         return
       }
 
       const currentCount = orderedExistingDesigns.length
-      const previousCount = previousDesignCountRef.current
       previousDesignCountRef.current = currentCount
 
       if (
         autoLoadTriggeredRef.current ||
         hasAutoLoadedDesign ||
         viewMode !== "add-new" ||
+        previousViewMode !== null ||
         currentCount === 0 ||
-        currentCount === previousCount ||
         figmaUrlRequestRef.current !== null
       ) {
         return
@@ -691,79 +717,17 @@ const FigmaDesignManager = memo(
       loadDesignFromLink(firstDesign).finally(() => {
         setIsAutoLoading(false)
       })
-    }, [orderedExistingDesigns, hasAutoLoadedDesign, isOpen, viewMode])
-
-    // Single effect to handle metadata fetching when modal opens
-    useEffect(() => {
-      if (!isOpen) {
-        return
-      }
-
-      const setupDesignData = async () => {
-        const hasFreshMetadata =
-          metadataLastFetched !== undefined &&
-          Date.now() - metadataLastFetched < 5 * 60 * 1000 &&
-          metadata.website?.url === currentWebsiteUrl
-
-        // Don't do anything if already loading
-        if (isLoadingMetadata) {
-          console.log("⏭️ Skipping setup - metadata already loading")
-          return
-        }
-
-        if (hasFreshMetadata) {
-          console.log("✅ Metadata already fresh for", currentWebsiteUrl)
-        }
-
-        setIsAutoLoading(true)
-
-        // Fetch metadata once if not fresh
-        if (!hasFreshMetadata) {
-          console.log("📡 Fetching fresh metadata for:", currentWebsiteUrl)
-          await fetchMetadata(currentWebsiteUrl)
-        }
-
-        // Set frames from metadata once
-        if (metadata.designLinks.length > 0) {
-          const orderedLinks = orderDesignLinks(metadata.designLinks)
-          const frames = orderedLinks.map((design) => ({
-            id: design.id, // Use database ID for uniqueness (allows duplicate Figma frames)
-            name: design.frame_name ?? "Untitled",
-            figmaUrl: design.frame_url,
-            imageUrl: design.thumbnail_url ?? undefined,
-            fileId: design.figma_file_id,
-            figmaFrameId: design.figma_frame_id // Keep Figma frame ID for preference matching
-          }))
-
-          replaceFrames(frames)
-
-          // Auto-select preferred frame if available - match by Figma frame ID
-          if (metadata.preference?.lastUsedFrameId) {
-            const preferred = frames.find(
-              (frame) =>
-                frame.figmaFrameId === metadata.preference?.lastUsedFrameId
-            )
-            if (preferred) {
-              setCurrentFrame(preferred)
-            }
-          }
-        }
-
-        setIsAutoLoading(false)
-      }
-
-      void setupDesignData()
     }, [
+      orderedExistingDesigns,
+      hasAutoLoadedDesign,
       isOpen,
-      metadataLastFetched,
-      metadata.website?.url,
-      currentWebsiteUrl,
-      isLoadingMetadata,
-      fetchMetadata,
-      replaceFrames,
-      setCurrentFrame,
-      orderDesignLinks
+      viewMode,
+      previousViewMode,
+      loadDesignFromLink
     ])
+
+    // NOTE: Metadata fetching is handled by parent (popup open effect).
+    // Avoid fetching here to prevent duplicate/infinite requests.
 
     // Separate effect to handle frame setup when metadata changes
     useEffect(() => {

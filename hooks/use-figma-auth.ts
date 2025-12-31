@@ -47,7 +47,8 @@ export function useFigmaAuth(): UseFigmaAuthReturn {
 
   return {
     authStatus,
-    isLoading: isLoadingMetadata || isLoadingStatus,
+    // Only use auth-status loading here; metadata loading is tracked separately
+    isLoading: isLoadingStatus,
     error: metadataError,
     checkAuth,
     initiateAuth,

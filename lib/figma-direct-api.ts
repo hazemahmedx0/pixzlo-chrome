@@ -64,6 +64,22 @@ export function getCachedWorkspaceId(): string | undefined {
   return tokenCache?.workspaceId
 }
 
+const WORKSPACE_STORAGE_KEY = "pixzlo_selected_workspace_id"
+
+// Helper to get stored workspace ID
+async function getStoredWorkspaceId(): Promise<string | undefined> {
+  try {
+    // Check if chrome.storage is available
+    if (typeof chrome === "undefined" || !chrome.storage || !chrome.storage.local) {
+      return undefined
+    }
+    const result = await chrome.storage.local.get(WORKSPACE_STORAGE_KEY)
+    return result[WORKSPACE_STORAGE_KEY] as string | undefined
+  } catch {
+    return undefined
+  }
+}
+
 /**
  * Fetch and cache the Figma access token from the backend
  */
@@ -73,8 +89,13 @@ async function fetchToken(workspaceId?: string): Promise<TokenCache> {
     return tokenFetchPromise
   }
 
-  // Determine workspace ID - use provided or try to get from user profile
+  // Determine workspace ID - use provided, then stored, then from API
   let targetWorkspaceId = workspaceId
+
+  if (!targetWorkspaceId) {
+    // First, try to get stored workspace ID
+    targetWorkspaceId = await getStoredWorkspaceId()
+  }
 
   if (!targetWorkspaceId) {
     // Try to get workspace ID from user profile
@@ -90,46 +111,64 @@ async function fetchToken(workspaceId?: string): Promise<TokenCache> {
       throw new Error("Failed to get user profile")
     }
 
+    interface WorkspaceData {
+      id: string
+      name: string
+      status: string
+      workspace_id?: string
+    }
+
     interface ProfileApiResponse {
       success: boolean
       profile?: {
-        workspaces?: Array<{
-          workspace_id: string
-          status: string
-        }>
+        workspaces?: WorkspaceData[]
       }
       needsOnboarding?: boolean
     }
 
     const response: ProfileApiResponse = await profileResponse.json()
-    
+
     if (!response.success || !response.profile) {
       throw new Error("Failed to get user profile")
     }
 
-    const activeWorkspace = response.profile.workspaces?.find((w) => {
-      const status = (w.status ?? "").toLowerCase()
-      return status === "active"
-    })
+    const activeWorkspaces =
+      response.profile.workspaces?.filter((w) => w.status === "active") ?? []
 
-    if (!activeWorkspace) {
+    if (activeWorkspaces.length === 0) {
       if (response.needsOnboarding) {
         throw new Error("Please complete onboarding in Pixzlo first.")
       }
-      throw new Error("No active workspace found. Please set up a workspace in Pixzlo.")
+      throw new Error(
+        "No active workspace found. Please set up a workspace in Pixzlo."
+      )
     }
 
-    const resolvedWorkspaceId =
-      // Newer shape: workspace_id
-      activeWorkspace.workspace_id ??
-      // Legacy shape from get_user_profile(): id
-      (activeWorkspace as { id?: string }).id
+    // Helper to get workspace ID (supports both API formats)
+    const getWsId = (ws: WorkspaceData): string => ws.workspace_id ?? ws.id
 
-    if (!resolvedWorkspaceId) {
-      throw new Error("Workspace is missing an ID. Please re-open Pixzlo and try again.")
+    // Check if stored workspace is still valid
+    const storedId = await getStoredWorkspaceId()
+    if (storedId) {
+      const storedWorkspace = activeWorkspaces.find(
+        (w) => getWsId(w) === storedId
+      )
+      if (storedWorkspace) {
+        targetWorkspaceId = storedId
+      }
     }
 
-    targetWorkspaceId = resolvedWorkspaceId
+    // Fall back to first active workspace
+    if (!targetWorkspaceId) {
+      const firstWorkspace = activeWorkspaces[0]
+      targetWorkspaceId = firstWorkspace ? getWsId(firstWorkspace) : undefined
+    }
+
+    if (!targetWorkspaceId) {
+      throw new Error(
+        "Workspace is missing an ID. Please re-open Pixzlo and try again."
+      )
+    }
   }
 
   // Safety check - ensure we have a valid workspace ID before proceeding
@@ -200,6 +239,19 @@ async function fetchToken(workspaceId?: string): Promise<TokenCache> {
  * Get a valid Figma access token, fetching/refreshing if needed
  */
 async function getAccessToken(workspaceId?: string): Promise<string> {
+  const resolvedWorkspaceId = workspaceId ?? (await getStoredWorkspaceId())
+
+  // If workspace changed, the cached token might be for a different workspace-integrated
+  // Figma account. Never reuse a token across workspaces.
+  if (
+    tokenCache &&
+    resolvedWorkspaceId &&
+    tokenCache.workspaceId !== resolvedWorkspaceId
+  ) {
+    tokenCache = undefined
+    tokenFetchPromise = undefined
+  }
+
   // Check if we have a valid cached token
   if (tokenCache) {
     const now = new Date()
@@ -217,7 +269,7 @@ async function getAccessToken(workspaceId?: string): Promise<string> {
   }
 
   // Fetch a new token
-  const cache = await fetchToken(workspaceId)
+  const cache = await fetchToken(resolvedWorkspaceId)
   return cache.accessToken
 }
 
@@ -262,7 +314,9 @@ async function figmaApiRequest<T>(
   options: RequestInit = {},
   retryOnUnauthorized = true
 ): Promise<T> {
-  const accessToken = await getAccessToken()
+  // Ensure the access token is tied to the currently selected workspace
+  const workspaceId = await getStoredWorkspaceId()
+  const accessToken = await getAccessToken(workspaceId)
 
   const response = await fetch(`https://api.figma.com/v1${endpoint}`, {
     ...options,

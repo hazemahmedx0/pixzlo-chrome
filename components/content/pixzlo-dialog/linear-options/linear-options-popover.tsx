@@ -123,8 +123,19 @@ export function LinearOptionsPopover({
               size="sm"
               className="text-xs"
               onClick={() => {
-                const pixzloWebUrl = PIXZLO_WEB_URL
-                window.open(`${pixzloWebUrl}/settings/integrations`, "_blank")
+                if (typeof chrome !== "undefined" && chrome.runtime?.sendMessage) {
+                  chrome.runtime.sendMessage(
+                    { type: "OPEN_INTEGRATIONS_SETTINGS" },
+                    () => {
+                      if (chrome.runtime.lastError) {
+                        window.open(`${PIXZLO_WEB_URL}/settings/integrations`, "_blank")
+                      }
+                    }
+                  )
+                  return
+                }
+
+                window.open(`${PIXZLO_WEB_URL}/settings/integrations`, "_blank")
               }}>
               Manage
             </Button>

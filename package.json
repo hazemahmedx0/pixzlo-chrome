@@ -1,7 +1,7 @@
 {
   "name": "ruin-tedious-frog",
   "displayName": "Pixzlo",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Pixzlo browser extension for capturing issues, highlighting elements, and submitting reports with Figma and Linear integration.",
   "author": "Pixzlo <hazemahmedx3@gmail.com>",
   "scripts": {
@@ -57,13 +57,16 @@
   },
   "manifest": {
     "host_permissions": [
+      "http://localhost:3000/*",
+      "https://localhost:3000/*",
       "https://app.pixzlo.com/*",
       "https://*.pixzlo.com/*",
       "https://api.figma.com/*"
     ],
     "permissions": [
       "tabs",
-      "activeTab"
+      "activeTab",
+      "storage"
     ],
     "web_accessible_resources": [
       {
