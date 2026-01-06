@@ -27,7 +27,7 @@ const CSSTableHeader = memo(
     }
 
     return (
-      <div className="sticky top-0 z-10 grid grid-cols-[32px_120px_1fr_1fr] rounded-t-sm border-b border-gray-100 px-3 py-1.5 text-subheading-2xs uppercase text-gray-350">
+      <div className="sticky top-0 z-10 grid grid-cols-[32px_120px_1fr_1fr] gap-2 rounded-t-sm border-b border-gray-100 px-3 py-1.5 text-subheading-2xs uppercase text-gray-350">
         <div className="flex items-center">
           <PropertyCheckbox
             checked={allSelected}
@@ -39,16 +39,12 @@ const CSSTableHeader = memo(
           <div>PROPERTY</div>
         </div>
         <div>
-          <div className="flex justify-start pl-2">
-            <CodeValueDisplay
-              mode={displayMode}
-              onModeChange={onDisplayModeChange}
-            />
-          </div>
+          <CodeValueDisplay
+            mode={displayMode}
+            onModeChange={onDisplayModeChange}
+          />
         </div>
-        <div>
-          <div>DESIGN</div>
-        </div>
+        <div>DESIGN</div>
       </div>
     )
   }

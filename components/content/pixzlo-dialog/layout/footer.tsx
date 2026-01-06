@@ -78,7 +78,7 @@ const Footer = memo(
     }, [isConnected, metadata.preference, metadata.teams, metadata.projects])
 
     // Use the enhanced submission hook with preferences
-    const { handleSubmit: handleSubmitWithPreferences } =
+    const { handleSubmit: handleSubmitWithPreferences, isSubmitting } =
       useIssueSubmissionWithPreferences(
         onSubmit,
         shareToLinear && isConnected ? linearSelections : undefined
@@ -106,10 +106,21 @@ const Footer = memo(
     }
 
     const handleConnect = (): void => {
-      // Open Pixzlo-web settings page for Linear integration
-      // This would typically open in a new tab/window
-      const pixzloWebUrl = PIXZLO_WEB_URL
-      window.open(`${pixzloWebUrl}/settings/integrations`, "_blank")
+      // Open Pixzlo integrations page for the SELECTED workspace (via background script)
+      if (typeof chrome !== "undefined" && chrome.runtime?.sendMessage) {
+        chrome.runtime.sendMessage(
+          { type: "OPEN_INTEGRATIONS_SETTINGS" },
+          () => {
+            // Fallback if messaging fails
+            if (chrome.runtime.lastError) {
+              window.open(`${PIXZLO_WEB_URL}/settings/integrations`, "_blank")
+            }
+          }
+        )
+        return
+      }
+
+      window.open(`${PIXZLO_WEB_URL}/settings/integrations`, "_blank")
     }
 
     const handleSubmit = useCallback((): void => {
@@ -177,8 +188,9 @@ const Footer = memo(
             </Button>
             <Button
               onClick={handleSubmit}
+              disabled={isSubmitting}
               className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700">
-              Create issue
+              {isSubmitting ? "Creating issue..." : "Create issue"}
             </Button>
           </div>
         </div>

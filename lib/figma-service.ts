@@ -6,6 +6,7 @@ import type {
   FigmaFile,
   FigmaNode
 } from "@/types/figma"
+import { getFaviconUrl } from "@/utils/get-favicon-url"
 
 interface FigmaMetadata {
   integration: FigmaAuthStatus["integration"] | null
@@ -33,6 +34,7 @@ export class FigmaService {
 
   private cachedMetadata: {
     websiteUrl: string | null
+    workspaceId: string | null
     data: FigmaMetadata
     fetchedAt: number
   } | null = null
@@ -42,6 +44,19 @@ export class FigmaService {
       FigmaService.instance = new FigmaService()
     }
     return FigmaService.instance
+  }
+
+  private async getSelectedWorkspaceId(): Promise<string | undefined> {
+    const storageKey = "pixzlo_selected_workspace_id"
+    try {
+      if (typeof chrome !== "undefined" && chrome.storage?.local) {
+        const result = await chrome.storage.local.get(storageKey)
+        return result[storageKey] as string | undefined
+      }
+      return undefined
+    } catch {
+      return undefined
+    }
   }
 
   private async callBackground<T>(
@@ -83,26 +98,48 @@ export class FigmaService {
   }
 
   async getMetadata(
-    websiteUrl: string | null
+    websiteUrl: string | null,
+    options?: { force?: boolean; workspaceId?: string }
   ): Promise<FigmaApiResponse<FigmaMetadata>> {
     const cacheValidForMs = 5 * 60 * 1000
+    const resolvedWorkspaceId =
+      options?.workspaceId ?? (await this.getSelectedWorkspaceId()) ?? null
 
-    if (
+    // Cache validation:
+    // - Skip cache if force=true
+    // - Skip cache if URL changed
+    // - Skip cache if expired
+    // IMPORTANT: cache must also be scoped by workspace selection to avoid using
+    // a token/integration state from another workspace.
+    const cacheValid =
+      !options?.force &&
       this.cachedMetadata &&
       this.cachedMetadata.websiteUrl === websiteUrl &&
+      this.cachedMetadata.workspaceId === resolvedWorkspaceId &&
       Date.now() - this.cachedMetadata.fetchedAt < cacheValidForMs
-    ) {
+
+    if (cacheValid && this.cachedMetadata) {
+      console.log(
+        "📋 Using cached Figma metadata (workspace:",
+        this.cachedMetadata.workspaceId,
+        ")"
+      )
       return { success: true, data: this.cachedMetadata.data }
     }
 
     const response = await this.callBackground<FigmaMetadata>({
       type: "figma-fetch-metadata",
-      data: { websiteUrl }
+      data: {
+        websiteUrl,
+        force: Boolean(options?.force),
+        workspaceId: resolvedWorkspaceId ?? undefined
+      }
     })
 
     if (response.success && response.data) {
       this.cachedMetadata = {
         websiteUrl,
+        workspaceId: resolvedWorkspaceId,
         data: response.data,
         fetchedAt: Date.now()
       }
@@ -129,14 +166,17 @@ export class FigmaService {
     return this.makeApiCall<FigmaAuthStatus>("/api/integrations/figma/status")
   }
 
-  async initiateAuth(): Promise<FigmaApiResponse<{ authUrl: string }>> {
+  async initiateAuth(
+    workspaceId?: string
+  ): Promise<FigmaApiResponse<{ authUrl: string }>> {
     this.clearMetadataCache()
-    return this.makeApiCall<{ authUrl: string }>(
-      "/api/integrations/figma/auth",
-      {
-        method: "POST"
-      }
-    )
+
+    // If no workspaceId provided, the call will fail with validation error
+    // The caller should ensure workspaceId is available
+    return this.callBackground<{ authUrl: string }>({
+      type: "FIGMA_OAUTH",
+      data: { workspaceId }
+    })
   }
 
   async getDesignLinksForCurrentPage(): Promise<
@@ -162,7 +202,7 @@ export class FigmaService {
     FigmaApiResponse<FigmaMetadata>
   > {
     this.clearMetadataCache()
-    return this.getMetadata(window.location.href)
+    return this.getMetadata(window.location.href, { force: true })
   }
 
   async updatePreference(update: {
@@ -188,12 +228,29 @@ export class FigmaService {
     thumbnail_url?: string
   }): Promise<FigmaApiResponse<FigmaDesignLink>> {
     const currentUrl = window.location.href
+    const normalizedUrl = (() => {
+      try {
+        const parsed = new URL(currentUrl)
+        return parsed.origin + parsed.pathname
+      } catch {
+        return currentUrl
+      }
+    })()
+    // Get the actual page title from the document to use as the page name
+    const pageTitle = document.title || undefined
+    // Get the favicon URL from the page (explicit link tags or fallback to /favicon.ico)
+    const faviconUrl = getFaviconUrl()
 
     const response = await this.callBackground<FigmaDesignLink>({
       type: "figma-create-design-link",
       data: {
-        websiteUrl: currentUrl,
-        linkData
+        websiteUrl: normalizedUrl,
+        pageTitle, // Pass the page title from document.title
+        faviconUrl, // Pass the favicon URL detected from the page
+        linkData: {
+          ...linkData,
+          page_url: normalizedUrl
+        }
       }
     })
 

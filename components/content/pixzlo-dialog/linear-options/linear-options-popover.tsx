@@ -92,7 +92,7 @@ export function LinearOptionsPopover({
         </Button>
       </PopoverTrigger>
       <PopoverContent
-        className="w-96 rounded-lg border border-gray-200 bg-white shadow-lg"
+        className="w-96 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg"
         side="top"
         align="start"
         sideOffset={8}
@@ -123,8 +123,19 @@ export function LinearOptionsPopover({
               size="sm"
               className="text-xs"
               onClick={() => {
-                const pixzloWebUrl = PIXZLO_WEB_URL
-                window.open(`${pixzloWebUrl}/settings/integrations`, "_blank")
+                if (typeof chrome !== "undefined" && chrome.runtime?.sendMessage) {
+                  chrome.runtime.sendMessage(
+                    { type: "OPEN_INTEGRATIONS_SETTINGS" },
+                    () => {
+                      if (chrome.runtime.lastError) {
+                        window.open(`${PIXZLO_WEB_URL}/settings/integrations`, "_blank")
+                      }
+                    }
+                  )
+                  return
+                }
+
+                window.open(`${PIXZLO_WEB_URL}/settings/integrations`, "_blank")
               }}>
               Manage
             </Button>

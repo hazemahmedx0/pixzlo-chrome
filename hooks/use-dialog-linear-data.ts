@@ -5,7 +5,7 @@ import { useEffect, useRef } from "react"
 
 export function useDialogIntegrationData(): void {
   const { fetchAllData: fetchLinearData, checkStatus } = useLinearDataStore()
-  const { fetchMetadata: fetchFigmaMetadata } = useFigmaDataStore()
+  const { fetchMetadata } = useFigmaDataStore()
   const { isOpen } = usePixzloDialogStore()
 
   // Use ref to track if data has been fetched for this dialog session
@@ -19,12 +19,13 @@ export function useDialogIntegrationData(): void {
       // Always check status when dialog opens (ignore cache for freshness)
       void checkStatus()
       void fetchLinearData()
-      void fetchFigmaMetadata()
+      // Fetch Figma metadata once per dialog open; avoid repeated calls on focus/visibility
+      void fetchMetadata()
     }
 
     // Reset flag when dialog closes
     if (!isOpen) {
       hasFetchedRef.current = false
     }
-  }, [isOpen, fetchLinearData, fetchFigmaMetadata, checkStatus])
+  }, [isOpen, fetchLinearData, fetchMetadata, checkStatus])
 }

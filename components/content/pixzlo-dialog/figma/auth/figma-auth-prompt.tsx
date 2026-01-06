@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button"
 import { useFigmaAuth } from "@/hooks/use-figma-auth"
+import { useFigmaDataStore } from "@/stores/figma-data"
 import { AlertCircle, ExternalLink, Loader2 } from "lucide-react"
 import { memo, useEffect, useState } from "react"
 
@@ -57,12 +58,17 @@ const FigmaAuthPrompt = memo(
         if (result.success) {
           console.log("🔐 OAuth SUCCESS! Checking auth status...")
 
-          // Quick check - backend should be ready by now
-          setTimeout(async () => {
+          // Backend sometimes takes a moment to persist the integration status.
+          // Retry a few times so the UI flips to "connected" without requiring a page refresh.
+          const retryDelaysMs = [300, 600, 1000, 1500, 2000]
+          for (const delayMs of retryDelaysMs) {
             await checkAuth()
-            setAuthInProgress(false)
-            onAuthenticated?.()
-          }, 500) // Reduced from 2000ms to 500ms
+            if (useFigmaDataStore.getState().isConnected) break
+            await new Promise((r) => setTimeout(r, delayMs))
+          }
+
+          // Let the `isAuthenticated` effect drive `onAuthenticated` (avoids double-calls).
+          setAuthInProgress(false)
         } else {
           console.error("🔐 OAuth failed:", result.error)
           setAuthInProgress(false)
@@ -100,7 +106,7 @@ const FigmaAuthPrompt = memo(
               <AlertCircle className="mt-0.5 h-4 w-4 text-red-500" />
               <div className="text-sm text-red-700">
                 <p className="font-medium">Authentication Failed</p>
-                <p className="mt-1">{error.message}</p>
+                <p className="mt-1">{error}</p>
               </div>
             </div>
           )}

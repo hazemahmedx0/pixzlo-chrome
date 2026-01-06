@@ -1,24 +1,29 @@
 export interface LinearIntegrationData {
-  type: "linear"
-  user_name: string
-  organization_name: string
-  team_name?: string
-  teams_count: number
-  connected_at: string
+  linear_user_id?: string
+  linear_user_name?: string
+  linear_user_email?: string
+  linear_organization_id?: string
+  linear_organization_name?: string
+  default_team_id?: string
+  default_team_name?: string
+  available_teams?: Array<{ id: string; name: string; key?: string }>
+  permissions?: string[]
+  connected_at?: string
   expires_at?: string
+  api_version?: string
 }
 
 export interface IntegrationStatusResponse {
   connected: boolean
   integration?: {
-    id: string
-    workspace_id: string
-    integration_type: "linear" | "figma"
-    configured_by: string
-    is_active: boolean
-    created_at: string
-    updated_at: string
-    integration_data: LinearIntegrationData
+    id?: string
+    user_id?: string
+    integration_type?: "linear" | "figma"
+    configured_by?: string
+    is_active?: boolean
+    created_at?: string
+    updated_at?: string
+    integration_data?: LinearIntegrationData
   }
 }
 

@@ -6,21 +6,15 @@ interface ElementHighlighterProps {
   onCancel: () => void
 }
 
-interface ElementBoxModel {
-  content: DOMRect
-  padding: {
-    top: number
-    right: number
-    bottom: number
-    left: number
-  }
-  margin: {
-    top: number
-    right: number
-    bottom: number
-    left: number
-  }
-}
+/**
+ * ElementHighlighter - Interactive element selection with hover highlighting
+ *
+ * This component now excludes the extension dialog from element selection,
+ * ensuring that only the actual page content (or frame preview) is selectable.
+ * The viewport calculations are handled by ElementSelectionService which
+ * automatically detects frame containers and uses their bounds instead of
+ * the full window (which would include the extension UI).
+ */
 
 const ElementHighlighter = ({
   isActive,
@@ -33,7 +27,6 @@ const ElementHighlighter = ({
   const marginRef = useRef<HTMLDivElement>(null)
   const currentRect = useRef<DOMRect | null>(null)
   const currentElement = useRef<HTMLElement | null>(null)
-  const currentBoxModel = useRef<ElementBoxModel | null>(null)
 
   // RAF-throttled mouse move to reduce layout thrash on heavy pages
   const rafId = useRef<number | null>(null)
@@ -64,6 +57,26 @@ const ElementHighlighter = ({
       const marginBox = marginRef.current
       if (!overlay || !highlight || !paddingBox || !marginBox) return
 
+      // Check if click is within extension dialog (exclude it from selection)
+      const extensionDialog = document.querySelector('[data-pixzlo-ui="dialog"]') as HTMLElement
+      if (extensionDialog) {
+        const dialogRect = extensionDialog.getBoundingClientRect()
+        if (
+          clientX >= dialogRect.left &&
+          clientX <= dialogRect.right &&
+          clientY >= dialogRect.top &&
+          clientY <= dialogRect.bottom
+        ) {
+          // Click is within extension dialog, ignore it
+          highlight.style.display = "none"
+          paddingBox.style.display = "none"
+          marginBox.style.display = "none"
+          currentRect.current = null
+          currentElement.current = null
+          return
+        }
+      }
+
       // Temporarily hide the overlay to perform an accurate hit test
       overlay.style.display = "none"
 
@@ -79,28 +92,24 @@ const ElementHighlighter = ({
       const rootNode = overlay.getRootNode()
       const hostEl = rootNode instanceof ShadowRoot ? rootNode.host : null
 
-      if (!el || el === document.body || el === hostEl) {
+      // Also exclude extension UI elements
+      const isExtensionUI = el?.closest('[data-pixzlo-ui]')
+
+      if (!el || el === document.body || el === hostEl || isExtensionUI) {
         highlight.style.display = "none"
         paddingBox.style.display = "none"
         marginBox.style.display = "none"
         currentRect.current = null
         currentElement.current = null
-        currentBoxModel.current = null
         return
       }
 
       const rect = el.getBoundingClientRect()
+      currentRect.current = rect
+      currentElement.current = el
+
       const computedStyle = window.getComputedStyle(el)
 
-      // Get padding values
-      const padding = {
-        top: parseFloat(computedStyle.paddingTop) || 0,
-        right: parseFloat(computedStyle.paddingRight) || 0,
-        bottom: parseFloat(computedStyle.paddingBottom) || 0,
-        left: parseFloat(computedStyle.paddingLeft) || 0
-      }
-
-      // Get margin values
       const margin = {
         top: parseFloat(computedStyle.marginTop) || 0,
         right: parseFloat(computedStyle.marginRight) || 0,
@@ -108,54 +117,71 @@ const ElementHighlighter = ({
         left: parseFloat(computedStyle.marginLeft) || 0
       }
 
-      const boxModel: ElementBoxModel = {
-        content: rect,
-        padding,
-        margin
+      const padding = {
+        top: parseFloat(computedStyle.paddingTop) || 0,
+        right: parseFloat(computedStyle.paddingRight) || 0,
+        bottom: parseFloat(computedStyle.paddingBottom) || 0,
+        left: parseFloat(computedStyle.paddingLeft) || 0
       }
 
-      currentRect.current = rect
-      currentElement.current = el
-      currentBoxModel.current = boxModel
-
-      // Content box with blue overlay and thin border
-      highlight.style.display = "block"
-      highlight.style.left = `${rect.left}px`
-      highlight.style.top = `${rect.top}px`
-      highlight.style.width = `${rect.width}px`
-      highlight.style.height = `${rect.height}px`
-
-      // Padding box (if element has padding)
-      const hasPadding =
-        padding.top > 0 ||
-        padding.right > 0 ||
-        padding.bottom > 0 ||
-        padding.left > 0
-      if (hasPadding) {
-        paddingBox.style.display = "block"
-        paddingBox.style.left = `${rect.left - padding.left}px`
-        paddingBox.style.top = `${rect.top - padding.top}px`
-        paddingBox.style.width = `${rect.width + padding.left + padding.right}px`
-        paddingBox.style.height = `${rect.height + padding.top + padding.bottom}px`
-      } else {
-        paddingBox.style.display = "none"
+      const border = {
+        top: parseFloat(computedStyle.borderTopWidth) || 0,
+        right: parseFloat(computedStyle.borderRightWidth) || 0,
+        bottom: parseFloat(computedStyle.borderBottomWidth) || 0,
+        left: parseFloat(computedStyle.borderLeftWidth) || 0
       }
 
-      // Margin box (if element has margin)
+      // Margin box
       const hasMargin =
         margin.top > 0 ||
         margin.right > 0 ||
         margin.bottom > 0 ||
         margin.left > 0
+
       if (hasMargin) {
         marginBox.style.display = "block"
-        marginBox.style.left = `${rect.left - padding.left - margin.left}px`
-        marginBox.style.top = `${rect.top - padding.top - margin.top}px`
-        marginBox.style.width = `${rect.width + padding.left + padding.right + margin.left + margin.right}px`
-        marginBox.style.height = `${rect.height + padding.top + padding.bottom + margin.top + margin.bottom}px`
+        marginBox.style.left = `${rect.left - margin.left}px`
+        marginBox.style.top = `${rect.top - margin.top}px`
+        marginBox.style.width = `${rect.width + margin.left + margin.right}px`
+        marginBox.style.height = `${rect.height + margin.top + margin.bottom}px`
       } else {
         marginBox.style.display = "none"
       }
+
+      // Padding box (area inside border, covering padding + content)
+      const paddingBoxLeft = rect.left + border.left
+      const paddingBoxTop = rect.top + border.top
+      const paddingBoxWidth = Math.max(
+        0,
+        rect.width - border.left - border.right
+      )
+      const paddingBoxHeight = Math.max(
+        0,
+        rect.height - border.top - border.bottom
+      )
+      paddingBox.style.display = "block"
+      paddingBox.style.left = `${paddingBoxLeft}px`
+      paddingBox.style.top = `${paddingBoxTop}px`
+      paddingBox.style.width = `${paddingBoxWidth}px`
+      paddingBox.style.height = `${paddingBoxHeight}px`
+
+      // Content box (content area without padding/border)
+      const contentLeft = rect.left + border.left + padding.left
+      const contentTop = rect.top + border.top + padding.top
+      const contentWidth = Math.max(
+        0,
+        rect.width - border.left - border.right - padding.left - padding.right
+      )
+      const contentHeight = Math.max(
+        0,
+        rect.height - border.top - border.bottom - padding.top - padding.bottom
+      )
+
+      highlight.style.display = "block"
+      highlight.style.left = `${contentLeft}px`
+      highlight.style.top = `${contentTop}px`
+      highlight.style.width = `${contentWidth}px`
+      highlight.style.height = `${contentHeight}px`
     },
     []
   )
@@ -397,29 +423,29 @@ const ElementHighlighter = ({
         fontFamily:
           'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif'
       }}>
-      {/* Margin box - outermost, orange/amber color */}
+      {/* Margin box */}
       <div
         ref={marginRef}
         className="pointer-events-none absolute"
         style={{
           display: "none",
-          backgroundColor: "rgba(251, 146, 60, 0.15)",
-          border: "0.5px solid rgba(251, 146, 60, 0.6)"
+          backgroundColor: "rgba(251, 191, 36, 0.25)",
+          border: "1px solid rgba(217, 119, 6, 0.8)"
         }}
       />
 
-      {/* Padding box - middle layer, green color */}
+      {/* Padding box */}
       <div
         ref={paddingRef}
         className="pointer-events-none absolute"
         style={{
           display: "none",
-          backgroundColor: "rgba(34, 197, 94, 0.15)",
-          border: "0.5px solid rgba(34, 197, 94, 0.6)"
+          backgroundColor: "rgba(34, 197, 94, 0.2)",
+          border: "1px solid rgba(16, 185, 129, 0.8)"
         }}
       />
 
-      {/* Content box - innermost, blue overlay with thin border */}
+      {/* Content box - blue overlay with thin border */}
       <div
         ref={highlightRef}
         className="pointer-events-none absolute"

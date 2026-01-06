@@ -26,13 +26,15 @@ export function useFigmaDesigns(): UseFigmaDesignsReturn {
     metadataError,
     metadataLastFetched,
     fetchMetadata,
+    refreshMetadata,
     createDesignLink,
     deleteDesignLink
   } = useFigmaDataStore()
 
   const refreshDesigns = useCallback(async (): Promise<void> => {
-    await fetchMetadata()
-  }, [fetchMetadata])
+    // Force-refresh for the current URL so we always pick up newly added designs
+    await refreshMetadata(window.location.href, { force: true })
+  }, [refreshMetadata])
 
   const preferredFrameId = metadata.preference?.lastUsedFrameId ?? null
 

@@ -28,9 +28,9 @@ export function useFigmaAuth(): UseFigmaAuthReturn {
   } = useFigmaDataStore()
 
   const checkAuth = useCallback(async (): Promise<void> => {
-    // Fetch metadata to check auth status
-    await fetchMetadata()
-  }, [fetchMetadata])
+    // Force refresh to avoid stale cached status when auth state changes externally
+    await refreshMetadata()
+  }, [refreshMetadata])
 
   const initiateAuth = useCallback(async (): Promise<void> => {
     await refreshMetadata()
@@ -47,7 +47,8 @@ export function useFigmaAuth(): UseFigmaAuthReturn {
 
   return {
     authStatus,
-    isLoading: isLoadingMetadata || isLoadingStatus,
+    // Only use auth-status loading here; metadata loading is tracked separately
+    isLoading: isLoadingStatus,
     error: metadataError,
     checkAuth,
     initiateAuth,

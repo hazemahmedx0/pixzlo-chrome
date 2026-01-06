@@ -1,9 +1,9 @@
 {
   "name": "ruin-tedious-frog",
-  "displayName": "Ruin tedious frog",
-  "version": "0.0.1",
-  "description": "Plasmo extension using shadcn example",
-  "author": "Plasmo Corp. <foss@plasmo.com>",
+  "displayName": "Pixzlo",
+  "version": "0.0.3",
+  "description": "Pixzlo browser extension for capturing issues, highlighting elements, and submitting reports with Figma and Linear integration.",
+  "author": "Pixzlo <hazemahmedx3@gmail.com>",
   "scripts": {
     "dev": "plasmo dev",
     "build": "plasmo build",
@@ -57,17 +57,16 @@
   },
   "manifest": {
     "host_permissions": [
-      "https://*/*",
       "http://localhost:3000/*",
-      "https://api.figma.com/*",
-      "https://pixzlo.com/*"
+      "https://localhost:3000/*",
+      "https://app.pixzlo.com/*",
+      "https://*.pixzlo.com/*",
+      "https://api.figma.com/*"
     ],
     "permissions": [
       "tabs",
       "activeTab",
-      "desktopCapture",
-      "identity",
-      "system.display"
+      "storage"
     ],
     "web_accessible_resources": [
       {
@@ -76,7 +75,7 @@
           "assets/*.png"
         ],
         "matches": [
-          "<all_urls>"
+          "https://*/*"
         ]
       }
     ]

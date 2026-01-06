@@ -12,8 +12,8 @@ import FigmaFrameSelection from "./figma-frame-selection"
 import FigmaUrlInput from "./figma-url-input"
 import {
   convertTo16x9WithPadding,
+  cropImageFromSource,
   extractFigmaProperties,
-  processScreenshotCrop,
   type FigmaContextData
 } from "./figma-utils"
 
@@ -86,14 +86,18 @@ const FigmaDesignManager = memo(
       isLoadingMetadata,
       metadataLastFetched,
       fetchMetadata,
+      refreshMetadata,
       updatePreference
     } = useFigmaDataStore()
     const { setCurrentFrame, replaceFrames } = useFigmaToolbarStore()
     const figmaService = FigmaService.getInstance()
 
+    // Use metadata.designLinks from store directly for immediate reactivity
+    // This ensures the component sees new designs immediately after refreshMetadata
+    // without waiting for parent component re-render to pass updated props
     const safeExistingDesigns = useMemo(
-      () => existingDesigns ?? [],
-      [existingDesigns]
+      () => metadata.designLinks ?? existingDesigns ?? [],
+      [metadata.designLinks, existingDesigns]
     )
 
     const preferredFrameId = metadata.preference?.lastUsedFrameId ?? null
@@ -191,8 +195,11 @@ const FigmaDesignManager = memo(
       return undefined
     }, [selectedDesign, frameData, frameImageUrl, figmaUrl, figmaService])
 
-    const currentWebsiteOrigin = useMemo(() => {
-      return window.location.origin
+    // Use normalized URL (origin + pathname only) to match API response format
+    // This prevents infinite loops caused by query params/hash mismatch
+    const currentWebsiteUrl = useMemo(() => {
+      const url = new URL(window.location.href)
+      return url.origin + url.pathname
     }, [])
 
     // Initialize state from initialContext when changing design
@@ -311,6 +318,8 @@ const FigmaDesignManager = memo(
       setPreviousViewMode(viewMode)
       setViewMode("add-new")
       setError(null)
+      // Clear figmaUrl so the input starts empty for adding a new frame
+      setFigmaUrl("")
       // Don't clear frame data - we need it to restore the view if user cancels
       // setSelectedDesignId(null)
       // setFrameData(null)
@@ -360,10 +369,23 @@ const FigmaDesignManager = memo(
 
     const handleFigmaUrlSubmit = useCallback(
       async (overrideUrl?: string): Promise<void> => {
-        // Prevent API calls when in change design mode
-        if (isChangeDesignMode) {
+        // Determine the URL we're about to fetch
+        const urlToFetch = overrideUrl?.trim() || figmaUrlRef.current.trim()
+
+        // Prevent API calls when in change design mode, UNLESS:
+        // 1. User explicitly clicked "Add more frames" (previousViewMode is set), OR
+        // 2. User is switching to a DIFFERENT frame (URL differs from cached)
+        const isSameAsCachedUrl =
+          initialContext?.figmaUrl &&
+          urlToFetch === initialContext.figmaUrl.trim()
+
+        if (
+          isChangeDesignMode &&
+          previousViewMode === null &&
+          isSameAsCachedUrl
+        ) {
           console.log(
-            "🚫 Skipping API call - in change design mode with cached data"
+            "🚫 Skipping API call - in change design mode with cached data for same URL"
           )
           return
         }
@@ -547,34 +569,32 @@ const FigmaDesignManager = memo(
           )
           // Don't close the dialog on error - let user try again
           console.log("🔍 Error occurred but keeping dialog open for retry")
-        } finally {
-          setIsProcessing(false)
-          figmaUrlRequestRef.current = null
-          // Clear figma flow active flag
-          try {
-            usePixzloDialogStore.getState().setIsFigmaFlowActive(false)
-          } catch (error) {
-            console.warn("Failed to reset Figma flow flag", error)
-          }
+      } finally {
+        setIsProcessing(false)
+        figmaUrlRequestRef.current = null
+        // Clear figma flow active flag
+        try {
+          usePixzloDialogStore.getState().setIsFigmaFlowActive(false)
+        } catch (error) {
+          console.warn("Failed to reset Figma flow flag", error)
         }
-      },
-      [figmaService, isProcessing]
-    )
+      }
+    },
+    [
+      figmaService,
+      isProcessing,
+      isChangeDesignMode,
+      previousViewMode,
+      initialContext
+    ]
+  )
 
     const loadDesignFromLink = useCallback(
       async (design: FigmaDesignLink): Promise<void> => {
-        // Prevent API calls when in change design mode
-        if (isChangeDesignMode) {
-          console.log(
-            "🚫 Skipping loadDesignFromLink - in change design mode with cached data"
-          )
-          return
-        }
-
         setSelectedDesignId(design.id)
         await handleFigmaUrlSubmit(design.frame_url)
       },
-      [handleFigmaUrlSubmit, isChangeDesignMode]
+      [handleFigmaUrlSubmit]
     )
 
     const handleFrameSelect = (frame: FigmaNode): void => {
@@ -603,6 +623,11 @@ const FigmaDesignManager = memo(
 
         if (response.success) {
           console.log("✅ Design link created successfully")
+
+          // IMPORTANT: immediately refresh metadata/design-links for this page so
+          // the next "Add design reference" (without a full page refresh) sees
+          // the newly linked frame.
+          await refreshMetadata(currentWebsiteUrl, { force: true })
 
           // Create context data with file and frame IDs for issue submission
           const contextData: FigmaContextData = {
@@ -646,6 +671,8 @@ const FigmaDesignManager = memo(
       selectedFrame,
       figmaUrl,
       figmaService,
+      refreshMetadata,
+      currentWebsiteUrl,
       onDesignSelected,
       onClose
     ])
@@ -656,20 +683,20 @@ const FigmaDesignManager = memo(
         setSelectedDesignId(null)
         autoLoadTriggeredRef.current = false
         figmaUrlRequestRef.current = null
-        previousDesignCountRef.current = orderedExistingDesigns.length
+        // Reset so we auto-load the stored design again the next time the modal opens.
+        previousDesignCountRef.current = 0
         return
       }
 
       const currentCount = orderedExistingDesigns.length
-      const previousCount = previousDesignCountRef.current
       previousDesignCountRef.current = currentCount
 
       if (
         autoLoadTriggeredRef.current ||
         hasAutoLoadedDesign ||
         viewMode !== "add-new" ||
+        previousViewMode !== null ||
         currentCount === 0 ||
-        currentCount === previousCount ||
         figmaUrlRequestRef.current !== null
       ) {
         return
@@ -690,79 +717,17 @@ const FigmaDesignManager = memo(
       loadDesignFromLink(firstDesign).finally(() => {
         setIsAutoLoading(false)
       })
-    }, [orderedExistingDesigns, hasAutoLoadedDesign, isOpen, viewMode])
-
-    // Single effect to handle metadata fetching when modal opens
-    useEffect(() => {
-      if (!isOpen) {
-        return
-      }
-
-      const setupDesignData = async () => {
-        const hasFreshMetadata =
-          metadataLastFetched !== undefined &&
-          Date.now() - metadataLastFetched < 5 * 60 * 1000 &&
-          metadata.website?.url === currentWebsiteOrigin
-
-        // Don't do anything if already loading
-        if (isLoadingMetadata) {
-          console.log("⏭️ Skipping setup - metadata already loading")
-          return
-        }
-
-        if (hasFreshMetadata) {
-          console.log("✅ Metadata already fresh for", currentWebsiteOrigin)
-        }
-
-        setIsAutoLoading(true)
-
-        // Fetch metadata once if not fresh
-        if (!hasFreshMetadata) {
-          console.log("📡 Fetching fresh metadata for:", currentWebsiteOrigin)
-          await fetchMetadata(currentWebsiteOrigin)
-        }
-
-        // Set frames from metadata once
-        if (metadata.designLinks.length > 0) {
-          const orderedLinks = orderDesignLinks(metadata.designLinks)
-          const frames = orderedLinks.map((design) => ({
-            id: design.id, // Use database ID for uniqueness (allows duplicate Figma frames)
-            name: design.frame_name ?? "Untitled",
-            figmaUrl: design.frame_url,
-            imageUrl: design.thumbnail_url ?? undefined,
-            fileId: design.figma_file_id,
-            figmaFrameId: design.figma_frame_id // Keep Figma frame ID for preference matching
-          }))
-
-          replaceFrames(frames)
-
-          // Auto-select preferred frame if available - match by Figma frame ID
-          if (metadata.preference?.lastUsedFrameId) {
-            const preferred = frames.find(
-              (frame) =>
-                frame.figmaFrameId === metadata.preference?.lastUsedFrameId
-            )
-            if (preferred) {
-              setCurrentFrame(preferred)
-            }
-          }
-        }
-
-        setIsAutoLoading(false)
-      }
-
-      void setupDesignData()
     }, [
+      orderedExistingDesigns,
+      hasAutoLoadedDesign,
       isOpen,
-      metadataLastFetched,
-      metadata.website?.url,
-      currentWebsiteOrigin,
-      isLoadingMetadata,
-      fetchMetadata,
-      replaceFrames,
-      setCurrentFrame,
-      orderDesignLinks
+      viewMode,
+      previousViewMode,
+      loadDesignFromLink
     ])
+
+    // NOTE: Metadata fetching is handled by parent (popup open effect).
+    // Avoid fetching here to prevent duplicate/infinite requests.
 
     // Separate effect to handle frame setup when metadata changes
     useEffect(() => {
@@ -828,7 +793,7 @@ const FigmaDesignManager = memo(
 
       try {
         console.log(
-          "🎯 Using @reviewit-style screenshot capture with 40px margin..."
+          "🎯 Using direct image crop from Figma frame (no screen capture)..."
         )
 
         // Calculate element position in the displayed frame image
@@ -836,13 +801,29 @@ const FigmaDesignManager = memo(
           throw new Error("Frame image DOM element was not provided.")
         }
 
-        const frameImageRect = frameImage.getBoundingClientRect()
-        const scaleX =
-          frameImageRect.width / frameData.absoluteBoundingBox.width
-        const scaleY =
-          frameImageRect.height / frameData.absoluteBoundingBox.height
+        // Validate frameImageUrl is available
+        if (!frameImageUrl) {
+          throw new Error(
+            "Frame image URL is not available. Please try refreshing the frame."
+          )
+        }
 
-        // Calculate element position in the displayed image
+        console.log("🔍 Frame image URL available:", frameImageUrl.substring(0, 50) + "...")
+
+        // Get the actual displayed dimensions of the frame image
+        const displayedWidth = frameImage.offsetWidth
+        const displayedHeight = frameImage.offsetHeight
+
+        if (!displayedWidth || !displayedHeight) {
+          throw new Error("Frame image has invalid dimensions.")
+        }
+
+        const scaleX =
+          displayedWidth / frameData.absoluteBoundingBox.width
+        const scaleY =
+          displayedHeight / frameData.absoluteBoundingBox.height
+
+        // Calculate element position relative to the frame image (not viewport!)
         const elementRelativeX =
           (element.absoluteBoundingBox.x - frameData.absoluteBoundingBox.x) *
           scaleX
@@ -852,7 +833,7 @@ const FigmaDesignManager = memo(
         const elementWidth = element.absoluteBoundingBox.width * scaleX
         const elementHeight = element.absoluteBoundingBox.height * scaleY
 
-        // Calculate capture area with padding, bounded within the frame image
+        // Calculate capture area with 40px padding, bounded within the frame image
         const PADDING = 40
 
         // Calculate the capture area relative to the element, with padding
@@ -862,77 +843,45 @@ const FigmaDesignManager = memo(
         const captureHeight = elementHeight + PADDING * 2
 
         // Clamp the capture area to stay within the frame image boundaries
-        const clampedX = Math.max(0, Math.min(captureX, frameImageRect.width))
-        const clampedY = Math.max(0, Math.min(captureY, frameImageRect.height))
+        const clampedX = Math.max(0, captureX)
+        const clampedY = Math.max(0, captureY)
         const clampedWidth = Math.min(
           captureWidth,
-          frameImageRect.width - clampedX
+          displayedWidth - clampedX
         )
         const clampedHeight = Math.min(
           captureHeight,
-          frameImageRect.height - clampedY
+          displayedHeight - clampedY
         )
 
-        // Convert to absolute screen coordinates (within frame image only)
-        const captureArea = {
-          x: frameImageRect.left + clampedX,
-          y: frameImageRect.top + clampedY,
-          width: clampedWidth,
-          height: clampedHeight
-        }
-
-        console.log("📏 Calculated capture area (bounded to frame):", {
-          frameImageRect: {
-            left: frameImageRect.left,
-            top: frameImageRect.top,
-            width: frameImageRect.width,
-            height: frameImageRect.height
-          },
+        console.log("📏 Calculated capture area (relative to frame image):", {
+          displayedDimensions: { width: displayedWidth, height: displayedHeight },
+          scale: { x: scaleX, y: scaleY },
           elementPosition: { x: elementRelativeX, y: elementRelativeY },
-          captureArea
+          elementSize: { width: elementWidth, height: elementHeight },
+          captureArea: {
+            x: clampedX,
+            y: clampedY,
+            width: clampedWidth,
+            height: clampedHeight
+          }
         })
 
-        // Request screenshot from background
-        const response = await new Promise<{
-          success: boolean
-          screenshotDataUrl?: string
-          error?: string
-        }>((resolve) => {
-          chrome.runtime.sendMessage(
-            {
-              type: "CAPTURE_ELEMENT_SCREENSHOT",
-              area: captureArea,
-              scrollPosition: {
-                x: window.scrollX,
-                y: window.scrollY
-              }
-            },
-            (response) => {
-              if (chrome.runtime.lastError) {
-                resolve({
-                  success: false,
-                  error: chrome.runtime.lastError.message || "Extension error"
-                })
-              } else {
-                resolve(response || { success: false, error: "No response" })
-              }
-            }
-          )
-        })
-
-        if (!response.success || !response.screenshotDataUrl) {
-          setError(response.error || "Failed to capture screenshot")
-          return
-        }
-
-        console.log("✅ Screenshot captured, processing...")
-
-        // Crop screenshot to element area
-        const croppedImageUrl = await processScreenshotCrop(
-          response.screenshotDataUrl,
-          captureArea
+        // Crop directly from the frame image (already loaded from Figma)
+        // This avoids viewport/scroll issues entirely
+        console.log("🔍 Starting crop from source image...")
+        const croppedImageUrl = await cropImageFromSource(
+          frameImageUrl, // Use the source frame image URL
+          {
+            x: clampedX,
+            y: clampedY,
+            width: clampedWidth,
+            height: clampedHeight
+          },
+          displayedWidth,
+          displayedHeight
         )
-        console.log("✅ Element cropped from screenshot")
+        console.log("✅ Element cropped from frame image")
 
         // Convert to 16:9 aspect ratio with gray background
         const processedImageUrl =

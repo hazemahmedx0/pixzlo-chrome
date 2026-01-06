@@ -94,14 +94,33 @@ interface LinearDataState {
   // Combined actions
   fetchAllData: () => Promise<void>
   fetchMetadata: () => Promise<void>
-  checkStatus: () => Promise<void>
+  checkStatus: (force?: boolean) => Promise<void>
   isMetadataStale: () => boolean
   isStatusStale: () => boolean
   reset: () => void
+  resetStatusCache: () => void
 }
 
 const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
+const WORKSPACE_STORAGE_KEY = "pixzlo_selected_workspace_id"
 let lastStatusFetchedAt: number | null = null
+let lastStatusWorkspaceId: string | null = null // Track which workspace the status is for
+
+// Helper to get current workspace ID from storage
+async function getCurrentWorkspaceId(): Promise<string | null> {
+  try {
+    if (typeof chrome !== "undefined" && chrome.storage?.local) {
+      const result = await chrome.storage.local.get(WORKSPACE_STORAGE_KEY)
+      return (result[WORKSPACE_STORAGE_KEY] as string) ?? null
+    }
+    if (typeof localStorage !== "undefined") {
+      return localStorage.getItem(WORKSPACE_STORAGE_KEY)
+    }
+    return null
+  } catch {
+    return null
+  }
+}
 
 export const useLinearDataStore = create<LinearDataState>((set, get) => ({
   // Initial state
@@ -160,10 +179,55 @@ export const useLinearDataStore = create<LinearDataState>((set, get) => ({
     return Date.now() - lastStatusFetchedAt > CACHE_DURATION
   },
 
+  // Reset status cache (call when workspace changes)
+  resetStatusCache: () => {
+    lastStatusFetchedAt = null
+    lastStatusWorkspaceId = null
+    set({ isConnected: false, statusError: undefined })
+  },
+
   // Fetch Linear integration status (always makes API call when called directly)
-  checkStatus: async () => {
+  checkStatus: async (force = false) => {
     const state = get()
     if (state.isLoadingStatus) return
+
+    // Get current workspace ID to detect workspace changes
+    const currentWorkspaceId = await getCurrentWorkspaceId()
+
+    // Auto-force refresh if workspace changed
+    const workspaceChanged =
+      currentWorkspaceId !== null &&
+      lastStatusWorkspaceId !== null &&
+      currentWorkspaceId !== lastStatusWorkspaceId
+
+    if (workspaceChanged) {
+      console.log(
+        "🔄 Workspace changed from",
+        lastStatusWorkspaceId,
+        "to",
+        currentWorkspaceId,
+        "- forcing Linear status refresh"
+      )
+    }
+
+    // If force is true OR workspace changed, reset the cache
+    if (force || workspaceChanged) {
+      lastStatusFetchedAt = null
+      lastStatusWorkspaceId = null
+      // Also reset metadata when workspace changes
+      if (workspaceChanged) {
+        set({
+          metadata: {
+            teams: [],
+            projects: [],
+            users: [],
+            workflowStates: [],
+            preference: null
+          },
+          metadataLastFetched: null
+        })
+      }
+    }
 
     set({ isLoadingStatus: true, statusError: undefined })
 
@@ -197,7 +261,11 @@ export const useLinearDataStore = create<LinearDataState>((set, get) => ({
           statusError: undefined
         })
         lastStatusFetchedAt = Date.now()
-        console.log("✅ Linear status checked and cached")
+        lastStatusWorkspaceId = currentWorkspaceId // Track which workspace this status is for
+        console.log(
+          "✅ Linear status checked and cached for workspace:",
+          currentWorkspaceId
+        )
       } else {
         set({
           isConnected: false,
@@ -205,6 +273,7 @@ export const useLinearDataStore = create<LinearDataState>((set, get) => ({
           statusError: response.error
         })
         lastStatusFetchedAt = Date.now()
+        lastStatusWorkspaceId = currentWorkspaceId
       }
     } catch (error) {
       set({
@@ -214,6 +283,7 @@ export const useLinearDataStore = create<LinearDataState>((set, get) => ({
           error instanceof Error ? error.message : "Failed to check status"
       })
       lastStatusFetchedAt = Date.now()
+      lastStatusWorkspaceId = currentWorkspaceId
     }
   },
 
@@ -327,3 +397,32 @@ export const useLinearDataStore = create<LinearDataState>((set, get) => ({
       statusError: undefined
     })
 }))
+
+// Listen for workspace changes from popup (chrome.storage.onChanged)
+// This ensures the content script resets its cache when the user switches workspaces
+if (typeof chrome !== "undefined" && chrome.storage?.onChanged) {
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName === "local" && changes[WORKSPACE_STORAGE_KEY]) {
+      const oldValue = changes[WORKSPACE_STORAGE_KEY].oldValue as
+        | string
+        | undefined
+      const newValue = changes[WORKSPACE_STORAGE_KEY].newValue as
+        | string
+        | undefined
+
+      if (oldValue !== newValue && newValue) {
+        console.log(
+          "🔄 [LinearDataStore] Workspace changed via storage:",
+          oldValue,
+          "→",
+          newValue
+        )
+        // Reset the cache so next checkStatus will fetch fresh data for the new workspace
+        lastStatusFetchedAt = null
+        lastStatusWorkspaceId = null
+        // Also reset the store state
+        useLinearDataStore.getState().resetStatusCache()
+      }
+    }
+  })
+}

@@ -4,10 +4,11 @@ import { useFigmaToolbarStore } from "@/stores/figma-toolbar"
 import { useLinearDataStore } from "@/stores/linear-data"
 import { usePixzloDialogStore } from "@/stores/pixzlo-dialog"
 import type { IssueData } from "@/types/capture"
-import { useCallback } from "react"
+import { useCallback, useState } from "react"
 
 interface UseIssueSubmissionReturn {
   handleSubmit: () => void
+  isSubmitting: boolean
 }
 
 /**
@@ -28,6 +29,7 @@ export const useIssueSubmissionWithPreferences = (
   const { currentFrame } = useFigmaToolbarStore()
   const { metadata } = useLinearDataStore()
   const { preference: existingFigmaPreference } = useFigmaPreferences()
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   const savePreferences = useCallback(async (): Promise<void> => {
     try {
@@ -173,9 +175,13 @@ export const useIssueSubmissionWithPreferences = (
   ])
 
   const handleSubmit = useCallback(() => {
+    if (isSubmitting) return
+    setIsSubmitting(true)
+
     const issueData = createIssueData()
     if (!issueData) {
       console.error("Failed to create issue data")
+      setIsSubmitting(false)
       return
     }
 
@@ -360,11 +366,13 @@ export const useIssueSubmissionWithPreferences = (
                 chrome.runtime.lastError.message
               )
               onSubmit?.(issueData)
+              setIsSubmitting(false)
               return
             }
             if (!response?.success) {
               console.error("Issue submission failed:", response?.error)
               onSubmit?.(issueData)
+              setIsSubmitting(false)
               return
             }
             const url = response.data?.issueUrl
@@ -393,6 +401,7 @@ export const useIssueSubmissionWithPreferences = (
             console.log(
               "🔍 Issue submission completed - dialog remains open for user"
             )
+            setIsSubmitting(false)
           }
         )
       })()
@@ -402,8 +411,9 @@ export const useIssueSubmissionWithPreferences = (
     // Fallback: local handler (also save preferences)
     savePreferences().finally(() => {
       onSubmit?.(issueData)
+      setIsSubmitting(false)
     })
-  }, [onSubmit, createIssueData, savePreferences])
+  }, [onSubmit, createIssueData, savePreferences, isSubmitting])
 
-  return { handleSubmit }
+  return { handleSubmit, isSubmitting }
 }

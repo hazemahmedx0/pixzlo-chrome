@@ -29,7 +29,9 @@ export function useLinearIntegration(): {
   }, [checkStatus, retryConnection, setStatusDebugHelpers])
 
   useEffect(() => {
-    void checkStatus()
+    // Force a fresh status check on mount to ensure we have the latest
+    // status for the currently selected workspace
+    void checkStatus(true)
   }, [checkStatus])
 
   return {

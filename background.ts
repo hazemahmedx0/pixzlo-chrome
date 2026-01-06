@@ -1,4 +1,67 @@
-import { PIXZLO_WEB_URL } from "~lib/constants"
+import "~lib/console-silencer"
+
+import type { FigmaFile, FigmaNode } from "@/types/figma"
+
+import {
+  EXTENSION_GOODBYE_URL,
+  EXTENSION_WELCOME_URL,
+  PIXZLO_WEB_URL
+} from "~lib/constants"
+import {
+  clearTokenCache,
+  extractElementsFromNode as directExtractElements,
+  fetchFigmaFile as directFetchFigmaFile,
+  findNodeById as directFindNodeById,
+  renderFigmaNode as directRenderFigmaNode
+} from "~lib/figma-direct-api"
+
+// ============================================================================
+// Extension Install/Uninstall Handlers
+// ============================================================================
+
+/**
+ * Handle extension installation events
+ * - On fresh install: Open the welcome page
+ * - On update: Could show changelog (optional)
+ */
+chrome.runtime.onInstalled.addListener((details): void => {
+  // Set the uninstall URL (works for all install reasons)
+  try {
+    chrome.runtime.setUninstallURL(EXTENSION_GOODBYE_URL, () => {
+      const lastError = chrome.runtime.lastError
+      if (lastError) {
+        console.error("[Pixzlo] Failed to set uninstall URL:", lastError)
+      }
+    })
+  } catch (error) {
+    console.error("[Pixzlo] Failed to set uninstall URL:", error)
+  }
+
+  if (details.reason === "install") {
+    // Fresh installation - open welcome page
+    console.log("[Pixzlo] Extension installed, opening welcome page")
+    try {
+      chrome.tabs.create({ url: EXTENSION_WELCOME_URL }, () => {
+        const lastError = chrome.runtime.lastError
+        if (lastError) {
+          console.error("[Pixzlo] Failed to open welcome page:", lastError)
+        }
+      })
+    } catch (error) {
+      console.error("[Pixzlo] Failed to open welcome page:", error)
+    }
+  } else if (details.reason === "update") {
+    // Extension updated - could show changelog if needed
+    console.log(
+      "[Pixzlo] Extension updated from version:",
+      details.previousVersion
+    )
+  }
+})
+
+// ============================================================================
+// Figma API Configuration
+// ============================================================================
 
 // Figma metadata cache (includes token)
 let figmaMetadataCache: {
@@ -13,8 +76,8 @@ let figmaMetadataCache: {
 interface FrameRenderResponse {
   fileId: string
   nodeId: string
-  frameData: any
-  elements: any[]
+  frameData: FigmaNode
+  elements: ReturnType<typeof directExtractElements>
   imageUrl: string
   fileName: string
 }
@@ -29,40 +92,28 @@ const inFlightFrameRenderRequests = new Map<
   Promise<FrameRenderResponse>
 >()
 
-// Helper function to get Figma access token from metadata cache
-async function getFigmaAccessToken() {
-  // Check if we have cached metadata with a valid token
-  if (
-    figmaMetadataCache.data &&
-    figmaMetadataCache.data.token?.accessToken &&
-    figmaMetadataCache.expiresAt &&
-    new Date() < figmaMetadataCache.expiresAt
-  ) {
-    console.log("🔑 Using cached token from metadata")
-    return figmaMetadataCache.data.token.accessToken
-  }
+/**
+ * Fetch Figma file directly via Figma API (with token from backend)
+ * This reduces server load by making direct API calls from the extension
+ */
+async function fetchFigmaFileDirect(fileId: string): Promise<FigmaFile> {
+  console.log("[Figma Direct] Fetching file directly from Figma API:", fileId)
+  return directFetchFigmaFile(fileId)
+}
 
-  // Fetch fresh metadata
-  console.log("🔑 Fetching Figma metadata to get token...")
-  const metadataResponse = await handleFigmaFetchMetadata({})
-
-  if (!metadataResponse.success || !metadataResponse.data) {
-    throw new Error(metadataResponse.error || "Failed to fetch Figma metadata")
-  }
-
-  const accessToken = metadataResponse.data.token?.accessToken
-  if (!accessToken) {
-    throw new Error(
-      metadataResponse.data.token?.error || "Missing Figma access token"
-    )
-  }
-
-  // Cache metadata for 5 minutes
-  figmaMetadataCache.data = metadataResponse.data
-  figmaMetadataCache.expiresAt = new Date(Date.now() + 5 * 60 * 1000)
-
-  console.log("🔑 Token cached from metadata successfully")
-  return accessToken
+/**
+ * Render Figma node directly via Figma API
+ */
+async function renderFigmaNodeDirect(
+  fileId: string,
+  nodeId: string
+): Promise<string> {
+  console.log(
+    "[Figma Direct] Rendering node directly from Figma API:",
+    fileId,
+    nodeId
+  )
+  return directRenderFigmaNode(fileId, nodeId, "png", 2)
 }
 
 // Helper function to parse Figma URL and extract file ID and node ID
@@ -128,70 +179,26 @@ function extractFramesFromFigmaData(data: any): Array<{
   return frames
 }
 
-// Helper function to extract elements from a specific frame/node
-function extractElementsFromNode(
-  node: any,
-  frameId: string
-): Array<{
-  id: string
-  name: string
-  type: string
-  absoluteBoundingBox: any
-  relativeTransform: any
-  constraints: any
-  depth: number
-}> {
-  const elements = []
-
-  function traverseNode(currentNode, depth = 0) {
-    // Only include interactive elements and visible elements
-    if (currentNode.id !== frameId && currentNode.visible !== false) {
-      const element = {
-        id: currentNode.id,
-        name: currentNode.name,
-        type: currentNode.type,
-        absoluteBoundingBox: currentNode.absoluteBoundingBox,
-        relativeTransform: currentNode.relativeTransform,
-        constraints: currentNode.constraints,
-        depth: depth
-      }
-
-      // Add element if it has bounding box
-      if (currentNode.absoluteBoundingBox) {
-        elements.push(element)
-      }
-    }
-
-    // Recursively traverse children
-    if (currentNode.children) {
-      currentNode.children.forEach((child) => traverseNode(child, depth + 1))
-    }
+// Use imported helper functions from figma-direct-api
+const extractElementsFromNode = directExtractElements
+const findNodeById = (
+  data: { nodes?: Record<string, FigmaNode>; document?: FigmaNode },
+  nodeId: string
+): FigmaNode | undefined => {
+  // Handle FigmaFile format (with nodes object)
+  if (data.nodes) {
+    return directFindNodeById(data as FigmaFile, nodeId)
   }
-
-  traverseNode(node)
-  return elements
-}
-
-// Helper function to find a specific node by ID in Figma data
-function findNodeById(data: any, nodeId: string): any | undefined {
-  function searchNode(node: any): any | undefined {
-    if (node.id === nodeId) {
-      return node
+  // Handle legacy format with document property (for extractFramesFromFigmaData)
+  if (data.document) {
+    const tempFile: FigmaFile = {
+      key: "",
+      name: "",
+      thumbnail_url: "",
+      last_modified: "",
+      nodes: { root: data.document }
     }
-    if (node.children) {
-      for (const child of node.children) {
-        const found = searchNode(child)
-        if (found) return found
-      }
-    }
-    return undefined
-  }
-
-  if (data.document && data.document.children) {
-    for (const page of data.document.children) {
-      const found = searchNode(page)
-      if (found) return found
-    }
+    return directFindNodeById(tempFile, nodeId)
   }
   return undefined
 }
@@ -215,62 +222,34 @@ function dataUrlToBlob(dataUrl: string): Blob | undefined {
   }
 }
 
-// Helper function to render a Figma frame/node as an image (based on reviewit implementation)
-async function renderFigmaNode(
-  fileId: string,
-  nodeId: string,
-  token: string
-): Promise<string> {
-  // Use cache-busting headers only (version parameter not supported for images endpoint)
-  const response = await fetch(
-    `https://api.figma.com/v1/images/${fileId}?ids=${nodeId}&format=png&scale=2&use_absolute_bounds=true`,
-    {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Cache-Control": "no-cache, no-store, must-revalidate",
-        Pragma: "no-cache",
-        Expires: "0"
-      }
-    }
-  )
-
-  if (!response.ok) {
-    throw new Error(`Failed to render Figma node: ${response.status}`)
-  }
-
-  const data = await response.json()
-
-  if (data.err) {
-    throw new Error(`Figma API error: ${data.err}`)
-  }
-
-  const imageUrl = data.images[nodeId]
-  if (!imageUrl) {
-    throw new Error("No image URL returned from Figma API")
-  }
-
-  return imageUrl
-}
+// Use direct Figma API for rendering nodes
+const renderFigmaNode = renderFigmaNodeDirect
 
 // Linear Integration API calls from background script
 interface LinearStatusResponse {
   connected: boolean
   integration?: {
-    id: string
-    workspace_id: string
-    integration_type: "linear" | "figma"
-    configured_by: string
-    is_active: boolean
-    created_at: string
-    updated_at: string
-    integration_data: {
-      type: "linear"
-      user_name: string
-      organization_name: string
-      team_name?: string
-      teams_count: number
-      connected_at: string
+    id?: string
+    user_id?: string
+    workspace_id?: string
+    integration_type?: "linear" | "figma"
+    configured_by?: string
+    is_active?: boolean
+    created_at?: string
+    updated_at?: string
+    integration_data?: {
+      linear_user_id?: string
+      linear_user_name?: string
+      linear_user_email?: string
+      linear_organization_id?: string
+      linear_organization_name?: string
+      default_team_id?: string
+      default_team_name?: string
+      available_teams?: Array<{ id: string; name: string; key?: string }>
+      permissions?: string[]
+      connected_at?: string
       expires_at?: string
+      api_version?: string
     }
   }
 }
@@ -335,6 +314,157 @@ interface LinearOptionsResponse {
     | undefined
 }
 
+const WORKSPACE_STORAGE_KEY = "pixzlo_selected_workspace_id"
+
+// Helper function to get the user's selected workspace ID from storage
+async function getStoredWorkspaceId(): Promise<string | undefined> {
+  try {
+    // Check if chrome.storage is available
+    if (
+      typeof chrome === "undefined" ||
+      !chrome.storage ||
+      !chrome.storage.local
+    ) {
+      return undefined
+    }
+    const result = await chrome.storage.local.get(WORKSPACE_STORAGE_KEY)
+    const storedId = result[WORKSPACE_STORAGE_KEY] as string | undefined
+    return storedId
+  } catch (error) {
+    console.error("Error getting stored workspace ID:", error)
+    return undefined
+  }
+    }
+
+    interface WorkspaceData {
+      id: string
+  name?: string
+      status: string
+  slug?: string
+  workspace_slug?: string
+      // Extended fields from get_user_workspaces
+      workspace_id?: string
+      workspace_name?: string
+    }
+
+    interface ProfileResponse {
+      success: boolean
+      profile?: {
+        workspaces?: WorkspaceData[]
+      }
+    }
+
+const USER_PROFILE_CACHE_TTL_MS = 15_000
+let userProfileCache:
+  | {
+      data: ProfileResponse
+      fetchedAt: number
+    }
+  | undefined
+let userProfileFetchInFlight: Promise<ProfileResponse | undefined> | undefined
+
+function getWsId(ws: WorkspaceData): string {
+  return ws.workspace_id ?? ws.id
+}
+
+function getWsSlug(ws: WorkspaceData): string | undefined {
+  return ws.workspace_slug ?? ws.slug
+}
+
+async function getUserProfileCached(): Promise<ProfileResponse | undefined> {
+  const now = Date.now()
+  if (
+    userProfileCache &&
+    now - userProfileCache.fetchedAt < USER_PROFILE_CACHE_TTL_MS
+  ) {
+    return userProfileCache.data
+  }
+
+  if (userProfileFetchInFlight) return userProfileFetchInFlight
+
+  userProfileFetchInFlight = (async (): Promise<
+    ProfileResponse | undefined
+  > => {
+    try {
+      const response = await fetch(`${PIXZLO_WEB_URL}/api/user/profile`, {
+        method: "GET",
+        credentials: "include"
+      })
+
+      if (!response.ok) {
+        return undefined
+      }
+
+      const data = (await response.json()) as ProfileResponse
+      userProfileCache = { data, fetchedAt: Date.now() }
+      return data
+    } catch {
+      return undefined
+    } finally {
+      userProfileFetchInFlight = undefined
+    }
+  })()
+
+  return userProfileFetchInFlight
+}
+
+// Helper function to get user's active workspace ID
+// Priority:
+// 1. Use the workspace selected in the extension popup (stored selection)
+// 2. If none selected/invalid: auto-pick the first active workspace and persist it
+async function getUserActiveWorkspaceId(): Promise<string | undefined> {
+  try {
+    // First, check if we have a stored workspace selection
+    const storedId = await getStoredWorkspaceId()
+    if (storedId) {
+      return storedId
+    }
+
+    const data = await getUserProfileCached()
+    if (!data) return undefined
+
+    const activeWorkspaces =
+      data.profile?.workspaces?.filter((w) => w.status === "active") ?? []
+
+    if (activeWorkspaces.length === 0) {
+      return undefined
+    }
+
+    // No stored selection (or invalid) -> pick first active and persist it
+    const firstActive = activeWorkspaces[0]
+    const firstActiveId = firstActive ? getWsId(firstActive) : undefined
+    if (!firstActiveId) return undefined
+
+    try {
+      if (typeof chrome !== "undefined" && chrome.storage?.local) {
+        await chrome.storage.local.set({
+          [WORKSPACE_STORAGE_KEY]: firstActiveId
+        })
+      }
+    } catch (persistError) {
+      console.error(
+        "[Background] Failed to persist workspace selection:",
+        persistError
+      )
+    }
+
+    return firstActiveId
+  } catch (error) {
+    console.error("Error getting workspace ID:", error)
+    return undefined
+  }
+}
+
+async function getSelectedWorkspaceSlug(): Promise<string | undefined> {
+  const workspaceId = await getUserActiveWorkspaceId()
+  if (!workspaceId) return undefined
+
+  const data = await getUserProfileCached()
+  const workspaces = data?.profile?.workspaces ?? []
+  const matched = workspaces.find((w) => getWsId(w) === workspaceId)
+  return matched ? getWsSlug(matched) : undefined
+}
+
 // Linear API handler functions
 async function handleLinearStatusCheck(): Promise<{
   success: boolean
@@ -342,13 +472,26 @@ async function handleLinearStatusCheck(): Promise<{
   error?: string
 }> {
   try {
-    const pixzloWebUrl = PIXZLO_WEB_URL // Use the same URL as other API calls
+    const pixzloWebUrl = PIXZLO_WEB_URL
+
+    // Get workspace ID first (Linear is now workspace-scoped)
+    const workspaceId = await getUserActiveWorkspaceId()
+    if (!workspaceId) {
+      return {
+        success: false,
+        error:
+          "No workspace selected. Open the Pixzlo extension popup and select a workspace."
+      }
+    }
 
     console.log("📡 Checking Linear status from background script...")
-    console.log("🔗 URL:", `${pixzloWebUrl}/api/integrations/linear/status`)
+    console.log(
+      "🔗 URL:",
+      `${pixzloWebUrl}/api/integrations/linear/status?workspaceId=${workspaceId}`
+    )
 
     const response = await fetch(
-      `${pixzloWebUrl}/api/integrations/linear/status`,
+      `${pixzloWebUrl}/api/integrations/linear/status?workspaceId=${encodeURIComponent(workspaceId)}`,
       {
         method: "GET",
         headers: {
@@ -418,7 +561,18 @@ async function handleLinearCreateIssue(issueData: {
   try {
     const pixzloWebUrl = PIXZLO_WEB_URL // Use the same URL as other API calls
 
+    // Get workspace ID from storage - Linear is workspace-scoped
+    const workspaceId = await getUserActiveWorkspaceId()
+    if (!workspaceId) {
+      return {
+        success: false,
+        error:
+          "No workspace selected. Open the Pixzlo extension popup and select a workspace."
+      }
+    }
+
     console.log("📡 Creating Linear issue from background script...")
+    console.log("📌 Using workspace ID:", workspaceId)
     console.log(
       "🔗 URL:",
       `${pixzloWebUrl}/api/integrations/linear/create-issue`
@@ -433,7 +587,7 @@ async function handleLinearCreateIssue(issueData: {
           "Content-Type": "application/json"
         },
         credentials: "include",
-        body: JSON.stringify(issueData)
+        body: JSON.stringify({ ...issueData, workspaceId })
       }
     )
 
@@ -490,7 +644,8 @@ function buildLinearDescription(
   payload: any,
   websiteUrl: string,
   issueId: string,
-  imageUrls?: { element?: string; figma?: string; main?: string }
+  imageUrls?: { element?: string; figma?: string; main?: string },
+  workspaceSlug?: string
 ): string {
   const sections: string[] = []
 
@@ -575,7 +730,9 @@ function buildLinearDescription(
       sections.push(`- **Website:** [View Page](${websiteUrl})`)
     }
 
-    const issueLink = `${PIXZLO_WEB_URL}/issues/${issueId}`
+    const issueLink = workspaceSlug
+      ? `${PIXZLO_WEB_URL}/${workspaceSlug}/issues/${issueId}`
+      : `${PIXZLO_WEB_URL}/issues/${issueId}`
     sections.push(`- **Pixzlo Issue:** [View Details](${issueLink})`)
 
     sections.push("")
@@ -626,10 +783,21 @@ async function handleLinearFetchMetadata(): Promise<{
   try {
     const pixzloWebUrl = PIXZLO_WEB_URL
 
+    // Get workspace ID from storage - Linear is workspace-scoped
+    const workspaceId = await getUserActiveWorkspaceId()
+    if (!workspaceId) {
+      return {
+        success: false,
+        error:
+          "No workspace selected. Open the Pixzlo extension popup and select a workspace."
+      }
+    }
+
     console.log("📡 Fetching Linear metadata from background script...")
+    console.log("📌 Using workspace ID:", workspaceId)
 
     const response = await fetch(
-      `${pixzloWebUrl}/api/integrations/linear/metadata`,
+      `${pixzloWebUrl}/api/integrations/linear/metadata?workspaceId=${encodeURIComponent(workspaceId)}`,
       {
         method: "GET",
         headers: { "Content-Type": "application/json" },
@@ -646,6 +814,21 @@ async function handleLinearFetchMetadata(): Promise<{
         return {
           success: false,
           error: "Please log in to Pixzlo to use this feature."
+        }
+      }
+
+      if (response.status === 404) {
+        // Linear integration not connected - this is a normal state, not an error
+        console.log("📡 Linear integration not connected")
+        return {
+          success: true,
+          data: {
+            teams: [],
+            projects: [],
+            users: [],
+            workflowStates: [],
+            preference: undefined
+          }
         }
       }
 
@@ -703,15 +886,31 @@ async function handleFigmaFetchPreference(data: {
   error?: string
 }> {
   try {
-    console.log("🎯 Fetching Figma preference for website:", data.websiteUrl)
-
-    const response = await fetch(
-      `${PIXZLO_WEB_URL}/api/integrations/figma/preferences?websiteUrl=${encodeURIComponent(data.websiteUrl)}`,
-      {
-        method: "GET",
-        credentials: "include"
+    // Get workspace ID from storage - Figma preferences are workspace-scoped
+    const workspaceId = await getUserActiveWorkspaceId()
+    if (!workspaceId) {
+      return {
+        success: false,
+        error:
+          "No workspace selected. Open the Pixzlo extension popup and select a workspace."
       }
+    }
+
+    console.log(
+      "🎯 Fetching Figma preference for website:",
+      data.websiteUrl,
+      "workspace:",
+      workspaceId
     )
+
+    const url = new URL(`${PIXZLO_WEB_URL}/api/integrations/figma/preferences`)
+    url.searchParams.set("websiteUrl", data.websiteUrl)
+    url.searchParams.set("workspaceId", workspaceId)
+
+    const response = await fetch(url.toString(), {
+      method: "GET",
+      credentials: "include"
+    })
 
     if (!response.ok) {
       const errorData = await response
@@ -764,10 +963,20 @@ async function handleLinearFetchPreference(): Promise<{
   error?: string
 }> {
   try {
-    console.log("🎯 Fetching Linear preference")
+    // Get workspace ID from storage - Linear preferences are workspace-scoped
+    const workspaceId = await getUserActiveWorkspaceId()
+    if (!workspaceId) {
+      return {
+        success: false,
+        error:
+          "No workspace selected. Open the Pixzlo extension popup and select a workspace."
+      }
+    }
+
+    console.log("🎯 Fetching Linear preference for workspace:", workspaceId)
 
     const response = await fetch(
-      `${PIXZLO_WEB_URL}/api/integrations/linear/preferences`,
+      `${PIXZLO_WEB_URL}/api/integrations/linear/preferences?workspaceId=${encodeURIComponent(workspaceId)}`,
       {
         method: "GET",
         credentials: "include"
@@ -829,7 +1038,21 @@ async function handleLinearUpdatePreference(data: {
   error?: string
 }> {
   try {
-    console.log("🎯 Updating Linear preference:", data)
+    // Get workspace ID from storage - Linear preferences are workspace-scoped
+    const workspaceId = await getUserActiveWorkspaceId()
+    if (!workspaceId) {
+      return {
+        success: false,
+        error:
+          "No workspace selected. Open the Pixzlo extension popup and select a workspace."
+      }
+    }
+
+    console.log(
+      "🎯 Updating Linear preference for workspace:",
+      workspaceId,
+      data
+    )
 
     const response = await fetch(
       `${PIXZLO_WEB_URL}/api/integrations/linear/preferences`,
@@ -839,7 +1062,7 @@ async function handleLinearUpdatePreference(data: {
           "Content-Type": "application/json"
         },
         credentials: "include",
-        body: JSON.stringify(data)
+        body: JSON.stringify({ ...data, workspaceId })
       }
     )
 
@@ -944,16 +1167,45 @@ async function handleLinearStatusCheckCached(): Promise<{
 
 async function handleFigmaFetchMetadata(data: {
   websiteUrl?: string | undefined
+  force?: boolean | undefined
+  workspaceId?: string | undefined
 }): Promise<{
   success: boolean
   data?: FigmaMetadataResponse
   error?: string
 }> {
   try {
+    if (data.force) {
+      figmaMetadataCache.data = undefined
+      figmaMetadataCache.expiresAt = undefined
+    }
+
+    // Get workspace ID from data, or try to get stored/active workspace ID
+    let workspaceId = data.workspaceId
+    if (!workspaceId) {
+      workspaceId = await getUserActiveWorkspaceId()
+    }
+    
+    if (!workspaceId) {
+      return {
+        success: false,
+        error:
+          "No workspace selected. Open the Pixzlo extension popup and select a workspace."
+      }
+    }
+
+    // Build URL with query parameters
+    const urlParams = new URLSearchParams()
+    if (data.websiteUrl) {
+      urlParams.set("websiteUrl", data.websiteUrl)
+    }
+    if (workspaceId) {
+      urlParams.set("workspaceId", workspaceId)
+    }
+
+    const queryString = urlParams.toString()
     const url = `${PIXZLO_WEB_URL}/api/integrations/figma/metadata${
-      data.websiteUrl
-        ? `?websiteUrl=${encodeURIComponent(data.websiteUrl)}`
-        : ""
+      queryString ? `?${queryString}` : ""
     }`
 
     const response = await fetch(url, {
@@ -1026,6 +1278,18 @@ async function handleFigmaUpdatePreference(data: {
   error?: string
 }> {
   try {
+    // Get workspace ID from storage - Figma preferences are workspace-scoped
+    const workspaceId = await getUserActiveWorkspaceId()
+    if (!workspaceId) {
+      return {
+        success: false,
+        error:
+          "No workspace selected. Open the Pixzlo extension popup and select a workspace."
+      }
+    }
+
+    console.log("🎯 Updating Figma preference for workspace:", workspaceId)
+
     const response = await fetch(
       `${PIXZLO_WEB_URL}/api/integrations/figma/preferences`,
       {
@@ -1034,7 +1298,7 @@ async function handleFigmaUpdatePreference(data: {
           "Content-Type": "application/json"
         },
         credentials: "include",
-        body: JSON.stringify(data)
+        body: JSON.stringify({ ...data, workspaceId })
       }
     )
 
@@ -1072,6 +1336,8 @@ async function handleFigmaUpdatePreference(data: {
 
 async function handleFigmaCreateDesignLink(data: {
   websiteUrl?: string | undefined
+  pageTitle?: string | undefined
+  faviconUrl?: string | undefined
   linkData: {
     figma_file_id: string
     figma_frame_id: string
@@ -1094,6 +1360,8 @@ async function handleFigmaCreateDesignLink(data: {
       credentials: "include",
       body: JSON.stringify({
         websiteUrl,
+        pageTitle: data.pageTitle, // Pass the page title from document.title
+        faviconUrl: data.faviconUrl, // Pass the favicon URL detected from the page
         ...data.linkData
       })
     })
@@ -1116,7 +1384,9 @@ async function handleFigmaCreateDesignLink(data: {
       }
     }
 
-    return handleFigmaFetchMetadata({ websiteUrl })
+    // IMPORTANT: pass force: true to clear background cache after creating link
+    // so that subsequent metadata fetches return the newly created design link
+    return handleFigmaFetchMetadata({ websiteUrl, force: true })
   } catch (error) {
     console.error("❌ Figma create design link error:", error)
     return {
@@ -1163,7 +1433,8 @@ async function handleFigmaDeleteDesignLink(data: {
       }
     }
 
-    return handleFigmaFetchMetadata({ websiteUrl })
+    // IMPORTANT: pass force: true to clear background cache after deleting link
+    return handleFigmaFetchMetadata({ websiteUrl, force: true })
   } catch (error) {
     console.error("❌ Figma delete design link error:", error)
     return {
@@ -1174,8 +1445,76 @@ async function handleFigmaDeleteDesignLink(data: {
   }
 }
 
+// ============================================================================
+// Extension Pinned State Handler
+// ============================================================================
+
+/**
+ * Check if the extension is pinned to the toolbar.
+ * Uses chrome.action.getUserSettings() API (Chrome 91+).
+ */
+async function checkExtensionPinnedState(): Promise<boolean> {
+  try {
+    const settings = await chrome.action.getUserSettings()
+    return settings.isOnToolbar
+  } catch (error) {
+    console.error("[Pixzlo] Failed to check pinned state:", error)
+    return false
+  }
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   console.log("🔧 Background received message:", message)
+
+  // Handle extension pinned state check
+  if (message.type === "GET_PINNED_STATE") {
+    console.log("📌 Checking extension pinned state...")
+    checkExtensionPinnedState()
+      .then((isPinned) => {
+        console.log("📌 Extension pinned state:", isPinned)
+        sendResponse({ success: true, isPinned })
+      })
+      .catch((error) => {
+        console.error("❌ Failed to check pinned state:", error)
+        sendResponse({
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error"
+        })
+      })
+    return true // Keep message channel open for async response
+  }
+
+  if (message.type === "OPEN_INTEGRATIONS_SETTINGS") {
+    ;(async (): Promise<void> => {
+      try {
+        const workspaceSlug = await getSelectedWorkspaceSlug()
+        const url = workspaceSlug
+          ? `${PIXZLO_WEB_URL}/${workspaceSlug}/settings/integrations`
+          : `${PIXZLO_WEB_URL}/settings/integrations`
+
+        await new Promise<void>((resolve, reject) => {
+          chrome.tabs.create({ url }, () => {
+            const lastError = chrome.runtime.lastError
+            if (lastError) {
+              reject(new Error(lastError.message))
+              return
+            }
+            resolve()
+          })
+        })
+
+        sendResponse({ success: true, url })
+      } catch (error) {
+        sendResponse({
+          success: false,
+          error:
+            error instanceof Error ? error.message : "Failed to open settings"
+        })
+      }
+    })()
+
+    return true
+  }
 
   // Handle Linear integration status check
   if (message.type === "linear-check-status") {
@@ -1231,104 +1570,109 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       })
     return true
   }
+
+  // Handle fetching pages tree for hierarchical page selection
+  if (message.type === "FETCH_PAGES_TREE") {
+    console.log("Background script - Fetching pages tree")
+    ;(async () => {
+      try {
+        // Get workspace ID from storage - pages are workspace-scoped
+        const workspaceId = await getUserActiveWorkspaceId()
+
+        // Build URL with workspace context
+        let url = `${PIXZLO_WEB_URL}/api/websites/tree`
+        if (workspaceId) {
+          url += `?workspace_id=${encodeURIComponent(workspaceId)}`
+        }
+
+        const response = await fetch(url, {
+          method: "GET",
+          credentials: "include"
+        })
+
+        if (!response.ok) {
+          if (response.status === 401) {
+            sendResponse({
+              success: false,
+              error: "Please log in to Pixzlo to access pages."
+            })
+            return
+          }
+
+          const errorData = await response.json().catch(() => ({}))
+          sendResponse({
+            success: false,
+            error:
+              (errorData as { error?: string }).error ||
+              `Failed to fetch pages (${response.status})`
+          })
+          return
+        }
+
+        const data = await response.json()
+        sendResponse({
+          success: true,
+          data: data
+        })
+      } catch (error) {
+        console.error("Background script - Pages tree fetch error:", error)
+        sendResponse({
+          success: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Failed to fetch pages tree"
+        })
+      }
+    })()
+
+    return true
+  }
+
   if (message.type === "FIGMA_API_CALL") {
     console.log("Background script - Figma API call requested:", message.method)
 
     if (message.method === "GET_FILE") {
       const fileId = message.fileId
 
-      // Get decrypted token from backend, then call Figma API directly
-      console.log("Background script - Getting decrypted Figma token...")
+      ;(async () => {
+        try {
+          console.log("Background script - Fetching Figma file directly")
+          const figmaData = await fetchFigmaFileDirect(fileId)
 
-      getFigmaAccessToken()
-        .then(async (accessToken) => {
-          console.log(
-            "Background script - Got token, calling Figma API directly..."
-          )
-          // Add cache-busting parameter to ensure fresh data
-          const cacheBust = Date.now()
-          const figmaUrl = `https://api.figma.com/v1/files/${fileId}?version=${cacheBust}`
+          const documentNode = figmaData?.nodes
+            ? Object.values(figmaData.nodes)[0]
+            : undefined
 
-          console.log("Background script - Figma API URL:", figmaUrl)
-          console.log("Background script - Token available:", !!accessToken)
+          if (!documentNode) {
+            throw new Error("Invalid Figma file response")
+          }
 
-          // Validate token with Figma API (same as working Python script)
-          console.log("Background script - Validating Figma token...")
-
-          return fetch("https://api.figma.com/v1/me", {
-            headers: {
-              Authorization: `Bearer ${accessToken}`
-            }
-          }).then(async (validateResponse) => {
-            if (validateResponse.ok) {
-              const userInfo = await validateResponse.json()
-              console.log(
-                "Background script - Token validated for user:",
-                userInfo.email || userInfo.handle
-              )
-            } else {
-              console.error(
-                "Background script - Token validation failed:",
-                validateResponse.status
-              )
-              throw new Error(
-                `Token validation failed: ${validateResponse.status}`
-              )
-            }
-
-            // Get Figma file (same approach as Python script)
-            console.log(`Background script - Fetching file: ${fileId}`)
-
-            return fetch(figmaUrl, {
-              headers: {
-                Authorization: `Bearer ${accessToken}`,
-                "Cache-Control": "no-cache, no-store, must-revalidate",
-                Pragma: "no-cache",
-                Expires: "0"
-              }
-            }).then(async (response) => {
-              if (response.ok) {
-                const figmaData = await response.json()
-                console.log(
-                  "Background script - Got Figma file:",
-                  figmaData.name
-                )
-
-                // Extract frames from the file
-                const frames = extractFramesFromFigmaData(figmaData)
-                console.log(
-                  "Background script - Found frames:",
-                  frames.map((f) => f.name)
-                )
-
-                sendResponse({
-                  success: true,
-                  data: {
-                    id: fileId,
-                    name: figmaData.name,
-                    pages: figmaData.document?.children || [],
-                    frames: frames,
-                    document: figmaData.document
-                  }
-                })
-              } else {
-                console.error(
-                  "Background script - File access failed:",
-                  response.status
-                )
-                throw new Error(`File access failed: ${response.status}`)
-              }
-            })
-          })
-        })
-        .catch((error) => {
-          console.error("Background script - Figma API error:", error)
+          const frames = extractFramesFromFigmaData({
+            document: documentNode
+          } as any)
 
           sendResponse({
-            success: false,
-            error: error.message || "Failed to fetch Figma file"
+            success: true,
+            data: {
+              id: fileId,
+              name: figmaData?.name,
+              pages: (documentNode as any)?.children || [],
+              frames,
+              document: documentNode
+            }
           })
-        })
+        } catch (error) {
+          console.error("Background script - Figma API error:", error)
+          sendResponse({
+            success: false,
+            error:
+              error instanceof Error
+                ? error.message
+                : "Failed to fetch Figma file"
+          })
+        }
+      })()
 
       return true
     }
@@ -1399,26 +1743,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       )
     } else {
       frameRequest = (async () => {
-        const accessToken = await getFigmaAccessToken()
-
-        console.log("Background script - Getting file data for frame...")
-        const fileResponse = await fetch(
-          `https://api.figma.com/v1/files/${fileId}`,
-          {
-            headers: {
-              Authorization: `Bearer ${accessToken}`
-            }
-          }
+        console.log(
+          "Background script - Getting file data directly from Figma..."
         )
+        const figmaData = await fetchFigmaFileDirect(fileId)
 
-        if (!fileResponse.ok) {
-          throw new Error(`File access failed: ${fileResponse.status}`)
+        const documentNode = figmaData?.nodes
+          ? Object.values(figmaData.nodes)[0]
+          : undefined
+        const figmaDocument = { document: documentNode } as any
+
+        if (!documentNode) {
+          throw new Error("Invalid Figma file response")
         }
 
-        const figmaData = await fileResponse.json()
-
         // Find the specific frame/node
-        const frameData = findNodeById(figmaData, nodeId)
+        const frameData = findNodeById(figmaDocument, nodeId)
         if (!frameData) {
           throw new Error(`Frame with node-id ${nodeId} not found in file`)
         }
@@ -1441,7 +1781,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         // Render the frame as an image
         console.log("🔍 BACKGROUND: Starting to render frame image...")
-        const imageUrl = await renderFigmaNode(fileId, nodeId, accessToken)
+        const imageUrl = await renderFigmaNode(fileId, nodeId)
         console.log("🔍 BACKGROUND: Frame image rendered, URL:", imageUrl)
 
         const responseData: FrameRenderResponse = {
@@ -1524,12 +1864,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true
     }
 
-    // Get token and render element
-    getFigmaAccessToken()
-      .then(async (accessToken) => {
-        console.log(`Background script - Rendering element ${nodeId}`)
-
-        const imageUrl = await renderFigmaNode(fileId, nodeId, accessToken)
+    renderFigmaNode(fileId, nodeId)
+      .then((imageUrl) => {
         console.log("Background script - Got element image URL:", imageUrl)
 
         sendResponse({
@@ -1546,6 +1882,52 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({
           success: false,
           error: error.message || "Failed to render element"
+        })
+      })
+
+    return true
+  }
+
+  if (message.type === "FETCH_IMAGE_DATA_URL") {
+    console.log("📥 Background fetching image data URL:", message.url)
+
+    fetch(message.url)
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(
+            `Failed to fetch image: ${response.status} ${response.statusText}`
+          )
+        }
+        return response.blob()
+      })
+      .then(
+        (blob) =>
+          new Promise<string>((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onloadend = () => {
+              if (typeof reader.result === "string") {
+                resolve(reader.result)
+              } else {
+                reject(new Error("Failed to convert blob to data URL"))
+              }
+            }
+            reader.onerror = () =>
+              reject(new Error("Failed to read image blob"))
+            reader.readAsDataURL(blob)
+          })
+      )
+      .then((dataUrl) => {
+        console.log("✅ Background image fetch successful")
+        sendResponse({
+          success: true,
+          dataUrl
+        })
+      })
+      .catch((error) => {
+        console.error("❌ Background image fetch error:", error)
+        sendResponse({
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error"
         })
       })
 
@@ -1605,35 +1987,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     const { fileId, nodeId } = message
 
-    // Get token and fetch image
-    getFigmaAccessToken()
-      .then(async (accessToken) => {
-        // Use the helper function to render Figma node as image (like reviewit)
-        console.log(
-          `Background script - Rendering Figma node ${nodeId} from file ${fileId}`
-        )
+    renderFigmaNode(fileId, nodeId)
+      .then((imageUrl) => {
+        console.log("Background script - Got Figma node image URL:", imageUrl)
 
-        try {
-          const imageUrl = await renderFigmaNode(fileId, nodeId, accessToken)
-          console.log("Background script - Got Figma node image URL:", imageUrl)
-
-          sendResponse({
-            success: true,
-            data: {
-              imageUrl: imageUrl
-            }
-          })
-        } catch (error) {
-          console.error(
-            "Background script - Failed to render Figma node:",
-            error
-          )
-
-          sendResponse({
-            success: false,
-            error: error.message || "Failed to render Figma node"
-          })
-        }
+        sendResponse({
+          success: true,
+          data: {
+            imageUrl: imageUrl
+          }
+        })
       })
       .catch((error) => {
         console.error("Background script - Image fetch error:", error)
@@ -1652,10 +2015,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // Get auth URL and launch OAuth immediately for speed
     const startTime = Date.now()
 
-    fetch(`${PIXZLO_WEB_URL}/api/integrations/figma/auth`, {
+    // Get workspace ID from message data or storage
+    const messageWorkspaceId = message.data?.workspaceId as string | undefined
+
+    const workspaceIdPromise = messageWorkspaceId
+      ? Promise.resolve(messageWorkspaceId)
+      : getUserActiveWorkspaceId()
+
+    workspaceIdPromise
+      .then((workspaceId) => {
+        if (!workspaceId) {
+          throw new Error(
+            "No workspace selected. Open the Pixzlo extension popup and select a workspace."
+          )
+        }
+        console.log("[Background] Figma OAuth using workspace:", workspaceId)
+        return fetch(`${PIXZLO_WEB_URL}/api/integrations/figma/auth`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      credentials: "include"
+          credentials: "include",
+          body: JSON.stringify({ workspaceId })
+        })
     })
       .then(async (response) => {
         const elapsed = Date.now() - startTime
@@ -1666,63 +2046,105 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return data.authUrl
       })
       .then((authUrl) => {
-        // Launch OAuth with custom popup dimensions
+        // Launch OAuth with custom popup dimensions (Chrome will position it)
         const popupWidth = 500
         const popupHeight = 700
 
-        // Get current screen dimensions to center the popup
-        chrome.system.display.getInfo((displays) => {
-          const primaryDisplay =
-            displays.find((display) => display.isPrimary) || displays[0]
-          const screenWidth = primaryDisplay.bounds.width
-          const screenHeight = primaryDisplay.bounds.height
+        chrome.windows.create(
+          {
+            url: authUrl,
+            type: "popup",
+            width: popupWidth,
+            height: popupHeight,
+            focused: true
+          },
+          (authWindow) => {
+            if (!authWindow) {
+              sendResponse({
+                success: false,
+                error: "Failed to create auth window"
+              })
+              return
+            }
 
-          const left = Math.round((screenWidth - popupWidth) / 2)
-          const top = Math.round((screenHeight - popupHeight) / 2)
+            // Listen for URL changes in the auth window
+            const onTabUpdated = (
+              tabId: number,
+              changeInfo: chrome.tabs.TabChangeInfo,
+              tab: chrome.tabs.Tab
+            ) => {
+              if (tab.windowId === authWindow.id && tab.url) {
+                console.log(
+                  `Background script - Figma OAuth tab updated: ${tab.url}`
+                )
 
-          chrome.windows.create(
-            {
-              url: authUrl,
-              type: "popup",
-              width: popupWidth,
-              height: popupHeight,
-              left: left,
-              top: top,
-              focused: true
-            },
-            (authWindow) => {
-              if (!authWindow) {
-                sendResponse({
-                  success: false,
-                  error: "Failed to create auth window"
-                })
-                return
-              }
+                // Check if this is a Figma OAuth completion URL
+                // We check for both the settings pages and the figma-callback page
+                const url = tab.url.toLowerCase()
+                const isSettingsPage =
+                  url.includes("/settings/connected") ||
+                  url.includes("/settings/integrations")
+                const hasResultParam =
+                  url.includes("success=") || url.includes("error=")
 
-              // Listen for URL changes in the auth window
-              const onTabUpdated = (
-                tabId: number,
-                changeInfo: chrome.tabs.TabChangeInfo,
-                tab: chrome.tabs.Tab
-              ) => {
-                if (
-                  tab.windowId === authWindow.id &&
-                  changeInfo.url &&
-                  tab.url
-                ) {
-                  // Check if this is the callback URL (PIXZLO_WEB_URL or pixzlo.com /settings/integrations)
-                  if (
-                    (tab.url.includes(
-                      `${PIXZLO_WEB_URL}/settings/integrations`
-                    ) ||
-                      tab.url.includes("pixzlo.com/settings/integrations")) &&
-                    (tab.url.includes("success=") || tab.url.includes("error="))
-                  ) {
-                    const totalTime = Date.now() - startTime
-                    console.log(
-                      `Background script - OAuth completed in ${totalTime}ms. URL: ${tab.url}`
-                    )
+                // Also check for figma-callback page with code (OAuth in progress)
+                // We don't close on this - just log it
+                const isFigmaCallbackWithCode =
+                  url.includes("/figma-callback") && url.includes("code=")
 
+                if (isFigmaCallbackWithCode) {
+                  console.log(
+                    "Background script - Figma OAuth code received, waiting for redirect..."
+                  )
+                  return
+                }
+
+                if (isSettingsPage && hasResultParam) {
+                  const totalTime = Date.now() - startTime
+                  console.log(
+                    `Background script - Figma OAuth completed in ${totalTime}ms. URL: ${tab.url}`
+                  )
+
+                  // Clean up listeners
+                  chrome.tabs.onUpdated.removeListener(onTabUpdated)
+                  chrome.windows.onRemoved.removeListener(onWindowRemoved)
+
+                  // Close the auth window
+                  chrome.windows.remove(authWindow.id)
+
+                  // Parse URL to get success/error status
+                  const urlObj = new URL(tab.url)
+                  const successParam = urlObj.searchParams.get("success")
+                  const errorParam = urlObj.searchParams.get("error")
+
+                  if (successParam) {
+                    console.log(`Figma OAuth success: ${successParam}`)
+                    figmaMetadataCache.data = undefined
+                    figmaMetadataCache.expiresAt = undefined
+                    clearTokenCache()
+                    sendResponse({ success: true })
+                  } else if (errorParam) {
+                    console.log(`Figma OAuth error: ${errorParam}`)
+                    sendResponse({
+                      success: false,
+                      error: decodeURIComponent(errorParam)
+                    })
+                  } else {
+                    sendResponse({
+                      success: false,
+                      error: "OAuth failed or was cancelled"
+                    })
+                  }
+                } else if (isSettingsPage && !hasResultParam) {
+                  // Settings page loaded but no result params - might have been cleared
+                  // Check if we have a success message visible (page loaded after redirect)
+                  console.log(
+                    "Background script - Settings page loaded without result params, checking status..."
+                  )
+
+                  // Give a brief moment for the page to process, then assume success
+                  // if we navigated from figma-callback to settings
+                  setTimeout(() => {
                     // Clean up listeners
                     chrome.tabs.onUpdated.removeListener(onTabUpdated)
                     chrome.windows.onRemoved.removeListener(onWindowRemoved)
@@ -1730,47 +2152,35 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     // Close the auth window
                     chrome.windows.remove(authWindow.id)
 
-                    // Parse URL to get success/error status
-                    const urlObj = new URL(tab.url)
-                    const successParam = urlObj.searchParams.get("success")
-                    const errorParam = urlObj.searchParams.get("error")
-
-                    if (successParam) {
-                      console.log(`OAuth success: ${successParam}`)
-                      sendResponse({ success: true })
-                    } else if (errorParam) {
-                      console.log(`OAuth error: ${errorParam}`)
-                      sendResponse({
-                        success: false,
-                        error: decodeURIComponent(errorParam)
-                      })
-                    } else {
-                      sendResponse({
-                        success: false,
-                        error: "OAuth failed or was cancelled"
-                      })
-                    }
-                  }
+                    // Assume success since we made it to settings page
+                    console.log(
+                      "Figma OAuth - assuming success (settings page reached)"
+                    )
+                    figmaMetadataCache.data = undefined
+                    figmaMetadataCache.expiresAt = undefined
+                    clearTokenCache()
+                    sendResponse({ success: true })
+                  }, 500)
                 }
               }
-
-              // Handle window being closed manually
-              const onWindowRemoved = (windowId: number) => {
-                if (windowId === authWindow.id) {
-                  chrome.tabs.onUpdated.removeListener(onTabUpdated)
-                  chrome.windows.onRemoved.removeListener(onWindowRemoved)
-                  sendResponse({
-                    success: false,
-                    error: "OAuth cancelled by user"
-                  })
-                }
-              }
-
-              chrome.tabs.onUpdated.addListener(onTabUpdated)
-              chrome.windows.onRemoved.addListener(onWindowRemoved)
             }
-          )
-        })
+
+            // Handle window being closed manually
+            const onWindowRemoved = (windowId: number) => {
+              if (windowId === authWindow.id) {
+                chrome.tabs.onUpdated.removeListener(onTabUpdated)
+                chrome.windows.onRemoved.removeListener(onWindowRemoved)
+                sendResponse({
+                  success: false,
+                  error: "OAuth cancelled by user"
+                })
+              }
+            }
+
+            chrome.tabs.onUpdated.addListener(onTabUpdated)
+            chrome.windows.onRemoved.addListener(onWindowRemoved)
+          }
+        )
       })
       .catch((error) => {
         console.error("Background script - OAuth failed:", error)
@@ -1784,11 +2194,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "capture-screen") {
+    if (!sender.tab?.windowId) {
+      sendResponse({
+        success: false,
+        error: "Capture denied: no active tab context"
+      })
+      return true
+    }
+
     chrome.tabs.captureVisibleTab(
-      sender.tab?.windowId ?? chrome.windows.WINDOW_ID_CURRENT,
+      sender.tab.windowId,
       { format: "png" },
       (dataUrl) => {
-        sendResponse({ dataUrl })
+        sendResponse({ dataUrl, success: true })
       }
     )
     return true
@@ -1871,27 +2289,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         const parseBrowserInfo = (browserInfo) => {
           if (!browserInfo) return undefined
-          const name = browserInfo.name || "Unknown"
-          const version = browserInfo.version || "Unknown"
-          return `${name} ${version}`
+          return {
+            name: browserInfo.name || "Unknown",
+            version: browserInfo.version || "Unknown",
+            userAgent: browserInfo.userAgent || undefined
+          }
         }
 
-        // Get workspace ID
-        const profileRes = await fetch(`${PIXZLO_WEB_URL}/api/user/profile`, {
-          method: "GET",
-          credentials: "include"
-        })
-        if (!profileRes.ok) {
-          throw new Error(`Failed to load profile: ${profileRes.status}`)
+        // Get workspace ID - MUST respect the user's selected workspace
+        const workspaceId = await getUserActiveWorkspaceId()
+        if (!workspaceId) {
+          throw new Error(
+            "No workspace selected. Open the Pixzlo extension popup and select a workspace."
+          )
         }
-        const profileData = await profileRes.json()
-        const workspaces = profileData?.profile?.workspaces || []
-        if (!Array.isArray(workspaces) || workspaces.length === 0) {
-          throw new Error("No workspace found for user")
-        }
-        const workspaceId =
-          workspaces[0]?.id || workspaces[0]?.workspace_id || workspaces[0]
-        if (!workspaceId) throw new Error("Workspace ID missing")
+        console.log("📌 Using workspace ID:", workspaceId)
 
         // Prepare batch create request
         const websiteUrl = payload?.metadata?.url
@@ -1947,6 +2359,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
 
         // Prepare batch create body
+        const deviceInfo = payload?.metadata?.device
+          ? {
+              device: payload.metadata.device,
+              os: "unknown",
+              version: undefined
+            }
+          : undefined
+
         const batchBody = {
           workspace_id: workspaceId,
           title,
@@ -1955,7 +2375,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           issue_type: issueType,
           website_url: websiteUrl,
           figma_link: payload?.figma?.figmaUrl,
-          device_info: payload?.metadata?.device,
+          device_info: deviceInfo,
           browser_info: parseBrowserInfo(payload?.browserInfo),
           screen_resolution: sanitizeDim(payload?.metadata?.screenResolution),
           viewport_size: sanitizeDim(payload?.metadata?.viewportSize),
@@ -1968,7 +2388,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                   figma_frame_id: payload.figma.frameId,
                   frame_name: payload.figma.frameName,
                   frame_url: payload.figma.figmaUrl,
-                  thumbnail_url: payload.figma.thumbnailUrl
+                  thumbnail_url: payload.figma.thumbnailUrl,
+                  page_url: websiteUrl
                 }
               : undefined,
           linear_enabled: payload?.linearEnabled || false,
@@ -2121,3 +2542,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true
   }
 })
+
+// Listen for workspace changes in storage
+if (typeof chrome !== "undefined" && chrome.storage?.onChanged) {
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName === "local" && changes[WORKSPACE_STORAGE_KEY]) {
+      const oldValue = changes[WORKSPACE_STORAGE_KEY].oldValue as
+        | string
+        | undefined
+      const newValue = changes[WORKSPACE_STORAGE_KEY].newValue as
+        | string
+        | undefined
+      console.log(
+        `[Background] 🔄 Workspace changed in storage: ${oldValue} → ${newValue}`
+      )
+      // Workspace changed => clear workspace-scoped caches/tokens so we don't use
+      // a token from the previous workspace.
+      clearTokenCache()
+      figmaMetadataCache.data = undefined
+      figmaMetadataCache.expiresAt = undefined
+    }
+  })
+}

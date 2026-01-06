@@ -35,8 +35,14 @@ interface FigmaDataState {
   isLoadingStatus: boolean
   statusError?: string
 
-  fetchMetadata: (websiteUrl?: string) => Promise<void>
-  refreshMetadata: (websiteUrl?: string) => Promise<void>
+  fetchMetadata: (
+    websiteUrl?: string,
+    options?: { force?: boolean; workspaceId?: string }
+  ) => Promise<void>
+  refreshMetadata: (
+    websiteUrl?: string,
+    options?: { force?: boolean; workspaceId?: string }
+  ) => Promise<void>
   getAccessToken: () => string | undefined
   updatePreference: (update: {
     websiteUrl: string
@@ -100,16 +106,29 @@ export const useFigmaDataStore = create<FigmaDataState>((set, get) => ({
       isLoadingStatus: false
     }),
 
-  fetchMetadata: async (websiteUrl?: string) => {
+  fetchMetadata: async (
+    websiteUrl?: string,
+    options?: { force?: boolean; workspaceId?: string }
+  ) => {
     const state = get()
     if (state.isLoadingMetadata) {
       return
     }
 
-    const urlToUse = websiteUrl ?? window.location.href
+    // Normalize URL to origin + pathname to match API response format
+    const normalizeUrl = (url: string): string => {
+      try {
+        const parsed = new URL(url)
+        return parsed.origin + parsed.pathname
+      } catch {
+        return url
+      }
+    }
+    const urlToUse = normalizeUrl(websiteUrl ?? window.location.href)
 
     // Check if we already have fresh data for this URL
     if (
+      !options?.force &&
       state.metadataLastFetched &&
       Date.now() - state.metadataLastFetched < CACHE_DURATION &&
       state.metadata.website?.url === urlToUse
@@ -122,7 +141,10 @@ export const useFigmaDataStore = create<FigmaDataState>((set, get) => ({
 
     try {
       const service = FigmaService.getInstance()
-      const response = await service.getMetadata(urlToUse)
+      const response = await service.getMetadata(urlToUse, {
+        force: Boolean(options?.force),
+        workspaceId: options?.workspaceId
+      })
 
       if (!response.success || !response.data) {
         set({
@@ -168,9 +190,18 @@ export const useFigmaDataStore = create<FigmaDataState>((set, get) => ({
     }
   },
 
-  refreshMetadata: async (websiteUrl?: string) => {
+  refreshMetadata: async (
+    websiteUrl?: string,
+    options?: { force?: boolean; workspaceId?: string }
+  ) => {
+    // Clear both store + service caches; otherwise we can keep showing stale auth
+    // state until a full page refresh.
+    FigmaService.getInstance().clearMetadataCache()
     set({ metadataLastFetched: null })
-    await get().fetchMetadata(websiteUrl)
+    await get().fetchMetadata(websiteUrl, {
+      force: Boolean(options?.force),
+      workspaceId: options?.workspaceId
+    })
   },
 
   getAccessToken: () => {
@@ -217,7 +248,8 @@ export const useFigmaDataStore = create<FigmaDataState>((set, get) => ({
       return false
     }
 
-    await get().refreshMetadata()
+    // Refresh with current full URL to get the design links for this specific page
+    await get().refreshMetadata(window.location.href, { force: true })
     return true
   },
 
@@ -230,7 +262,8 @@ export const useFigmaDataStore = create<FigmaDataState>((set, get) => ({
       return false
     }
 
-    await get().refreshMetadata()
+    // Refresh with current full URL to update the design links for this specific page
+    await get().refreshMetadata(window.location.href, { force: true })
     return true
   },
 

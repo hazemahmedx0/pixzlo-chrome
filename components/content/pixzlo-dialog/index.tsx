@@ -9,7 +9,7 @@ import type { IssueData, Screenshot } from "@/types/capture"
 import type { DrawingElement } from "@/types/drawing"
 import { FigmaLogoIcon } from "@phosphor-icons/react"
 import { X } from "lucide-react"
-import { memo, useCallback, useEffect, useRef, useState } from "react"
+import { memo, useCallback, useEffect, useRef } from "react"
 
 import FigmaModalContent from "./figma/figma-modal-content"
 import FormSection from "./form/form-section"
@@ -161,13 +161,28 @@ const PixzloDialog = memo(
       // Don't close the modal, let it switch to design selection
     }
 
-    // Load designs when Figma popup opens (only when user actually needs them)
+    // Track if we've already refreshed for this popup open session
+    const hasRefreshedForPopupRef = useRef(false)
+
+    // Load designs when Figma popup opens - ALWAYS refresh to get latest data from backend
     useEffect(() => {
-      if (isFigmaPopupOpen && designs.length === 0 && !designsLoading) {
-        console.log("🎯 Figma popup opened - loading designs...")
-        void refreshDesigns()
+      if (!isFigmaPopupOpen) {
+        // Reset the flag when popup closes so next open will refresh
+        hasRefreshedForPopupRef.current = false
+        return
       }
-    }, [isFigmaPopupOpen, refreshDesigns])
+
+      // Only refresh once per popup open to prevent infinite loops
+      if (hasRefreshedForPopupRef.current || designsLoading) {
+        return
+      }
+
+      hasRefreshedForPopupRef.current = true
+      console.log(
+        "🎯 Figma popup opened - refreshing designs from backend..."
+      )
+      void refreshDesigns()
+    }, [isFigmaPopupOpen, designsLoading, refreshDesigns])
 
     // Handle image download
     const handleDownload = useCallback(async (): Promise<void> => {
