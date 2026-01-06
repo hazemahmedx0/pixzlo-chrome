@@ -189,10 +189,10 @@ export class EnhancedFigmaExtractor {
         properties.fontWeight = textElement.style.fontWeight
       }
       if (textElement.style.lineHeightPx) {
-        properties.lineHeight = `${this.roundToPrecision(textElement.style.lineHeightPx, 0)}px`
+        properties.lineHeight = this.roundToPrecision(textElement.style.lineHeightPx, 0)
       }
       if (textElement.style.letterSpacing) {
-        properties.letterSpacing = `${this.roundToPrecision(textElement.style.letterSpacing, 2)}px`
+        properties.letterSpacing = this.roundToPrecision(textElement.style.letterSpacing, 2)
       }
       if (textElement.style.textAlignHorizontal) {
         const align = textElement.style.textAlignHorizontal.toLowerCase()

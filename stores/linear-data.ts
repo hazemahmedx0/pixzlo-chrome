@@ -1,5 +1,21 @@
+/**
+ * Linear Data Store
+ *
+ * Manages Linear integration state including teams, projects, users,
+ * workflow states, and user preferences.
+ *
+ * Uses shared base integration store patterns for consistency with Figma store.
+ */
+
 import { create } from "zustand"
 
+import {
+  DEFAULT_CACHE_DURATION,
+  extractErrorMessage,
+  sendChromeMessage
+} from "./base/integration-store"
+
+// Type definitions
 interface LinearTeam {
   id: string
   name: string
@@ -55,15 +71,19 @@ export interface LinearPreference {
   updatedAt: string
 }
 
+interface LinearMetadata {
+  teams: LinearTeam[]
+  projects: LinearProject[]
+  users: LinearUser[]
+  workflowStates: LinearWorkflowState[]
+  preference: LinearPreference | null
+}
+
 interface LinearDataState {
   // Linear metadata (all options + preference)
-  metadata: {
-    teams?: LinearTeam[]
-    projects?: LinearProject[]
-    users?: LinearUser[]
-    workflowStates?: LinearWorkflowState[]
-    preference?: LinearPreference | null
-  }
+  metadata: LinearMetadata
+
+  // Loading and error states
   isLoadingMetadata: boolean
   metadataError?: string
   metadataLastFetched: number | null
@@ -73,14 +93,8 @@ interface LinearDataState {
   isLoadingStatus: boolean
   statusError?: string
 
-  // Actions
-  setMetadata: (data: {
-    teams?: LinearTeam[]
-    projects?: LinearProject[]
-    users?: LinearUser[]
-    workflowStates?: LinearWorkflowState[]
-    preference?: LinearPreference | null
-  }) => void
+  // Actions - Setters
+  setMetadata: (data: Partial<LinearMetadata>) => void
   setIsLoadingMetadata: (loading: boolean) => void
   setMetadataError: (error: string | undefined) => void
   setConnectionStatus: (connected: boolean) => void
@@ -91,54 +105,64 @@ interface LinearDataState {
     retryConnection: () => Promise<void>
   }) => void
 
-  // Combined actions
+  // Actions - Fetching
   fetchAllData: () => Promise<void>
   fetchMetadata: () => Promise<void>
   checkStatus: () => Promise<void>
+
+  // Actions - Helpers
   isMetadataStale: () => boolean
   isStatusStale: () => boolean
   reset: () => void
 }
 
-const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
+// Module-level state for status tracking
 let lastStatusFetchedAt: number | null = null
+
+// Initial empty metadata
+const emptyMetadata: LinearMetadata = {
+  teams: [],
+  projects: [],
+  users: [],
+  workflowStates: [],
+  preference: null
+}
 
 export const useLinearDataStore = create<LinearDataState>((set, get) => ({
   // Initial state
-  metadata: {
-    teams: [],
-    projects: [],
-    users: [],
-    workflowStates: [],
-    preference: null
-  },
+  metadata: { ...emptyMetadata },
   isLoadingMetadata: false,
   metadataError: undefined,
   metadataLastFetched: null,
-
   isConnected: false,
   isLoadingStatus: false,
   statusError: undefined,
 
-  // Basic setters
+  // Setters
   setMetadata: (data) =>
     set({
       metadata: {
-        teams: data.teams ?? [],
-        projects: data.projects ?? [],
-        users: data.users ?? [],
-        workflowStates: data.workflowStates ?? [],
-        preference: data.preference ?? null
+        teams: data.teams ?? get().metadata.teams,
+        projects: data.projects ?? get().metadata.projects,
+        users: data.users ?? get().metadata.users,
+        workflowStates: data.workflowStates ?? get().metadata.workflowStates,
+        preference: data.preference !== undefined ? data.preference : get().metadata.preference
       },
       metadataLastFetched: Date.now(),
       metadataError: undefined
     }),
+
   setIsLoadingMetadata: (loading) => set({ isLoadingMetadata: loading }),
+
   setMetadataError: (error) => set({ metadataError: error }),
+
   setConnectionStatus: (connected) =>
     set({ isConnected: connected, statusError: undefined }),
+
   setIsLoadingStatus: (loading) => set({ isLoadingStatus: loading }),
+
   setStatusError: (error) => set({ statusError: error }),
+
   setStatusDebugHelpers: (helpers) => {
     if (typeof window !== "undefined") {
       ;(window as any).__pixzlo_debug_linear = {
@@ -152,15 +176,15 @@ export const useLinearDataStore = create<LinearDataState>((set, get) => ({
   isMetadataStale: () => {
     const state = get()
     if (!state.metadataLastFetched) return true
-    return Date.now() - state.metadataLastFetched > CACHE_DURATION
+    return Date.now() - state.metadataLastFetched > DEFAULT_CACHE_DURATION
   },
 
   isStatusStale: () => {
     if (!lastStatusFetchedAt) return true
-    return Date.now() - lastStatusFetchedAt > CACHE_DURATION
+    return Date.now() - lastStatusFetchedAt > DEFAULT_CACHE_DURATION
   },
 
-  // Fetch Linear integration status (always makes API call when called directly)
+  // Check Linear integration status
   checkStatus: async () => {
     const state = get()
     if (state.isLoadingStatus) return
@@ -168,27 +192,10 @@ export const useLinearDataStore = create<LinearDataState>((set, get) => ({
     set({ isLoadingStatus: true, statusError: undefined })
 
     try {
-      const response = await new Promise<{
-        success: boolean
-        data?: { connected: boolean; integration?: unknown }
-        error?: string
-      }>((resolve) => {
-        chrome.runtime.sendMessage(
-          { type: "linear-check-status" },
-          (backgroundResponse) => {
-            if (chrome.runtime.lastError) {
-              resolve({
-                success: false,
-                error:
-                  chrome.runtime.lastError.message ||
-                  "Extension communication error"
-              })
-            } else {
-              resolve(backgroundResponse)
-            }
-          }
-        )
-      })
+      const response = await sendChromeMessage<{
+        connected: boolean
+        integration?: unknown
+      }>({ type: "linear-check-status" })
 
       if (response.success) {
         set({
@@ -210,14 +217,13 @@ export const useLinearDataStore = create<LinearDataState>((set, get) => ({
       set({
         isConnected: false,
         isLoadingStatus: false,
-        statusError:
-          error instanceof Error ? error.message : "Failed to check status"
+        statusError: extractErrorMessage(error)
       })
       lastStatusFetchedAt = Date.now()
     }
   },
 
-  // Fetch aggregated Linear metadata (options + preference)
+  // Fetch Linear metadata (teams, projects, users, workflow states, preference)
   fetchMetadata: async () => {
     const state = get()
     if (state.isLoadingMetadata) return
@@ -225,32 +231,8 @@ export const useLinearDataStore = create<LinearDataState>((set, get) => ({
     set({ isLoadingMetadata: true, metadataError: undefined })
 
     try {
-      const response = await new Promise<{
-        success: boolean
-        data?: {
-          teams?: LinearTeam[]
-          projects?: LinearProject[]
-          users?: LinearUser[]
-          workflowStates?: LinearWorkflowState[]
-          preference?: LinearPreference | null
-        }
-        error?: string
-      }>((resolve) => {
-        chrome.runtime.sendMessage(
-          { type: "linear-fetch-metadata" },
-          (backgroundResponse) => {
-            if (chrome.runtime.lastError) {
-              resolve({
-                success: false,
-                error:
-                  chrome.runtime.lastError.message ||
-                  "Extension communication error"
-              })
-            } else {
-              resolve(backgroundResponse)
-            }
-          }
-        )
+      const response = await sendChromeMessage<LinearMetadata>({
+        type: "linear-fetch-metadata"
       })
 
       if (response.success && response.data) {
@@ -268,31 +250,16 @@ export const useLinearDataStore = create<LinearDataState>((set, get) => ({
         })
       } else {
         set({
-          metadata: {
-            teams: [],
-            projects: [],
-            users: [],
-            workflowStates: [],
-            preference: null
-          },
+          metadata: { ...emptyMetadata },
           isLoadingMetadata: false,
           metadataError: response.error || "Failed to fetch Linear metadata"
         })
       }
     } catch (error) {
       set({
-        metadata: {
-          teams: [],
-          projects: [],
-          users: [],
-          workflowStates: [],
-          preference: null
-        },
+        metadata: { ...emptyMetadata },
         isLoadingMetadata: false,
-        metadataError:
-          error instanceof Error
-            ? error.message
-            : "Failed to fetch Linear metadata"
+        metadataError: extractErrorMessage(error)
       })
     }
   },
@@ -300,7 +267,6 @@ export const useLinearDataStore = create<LinearDataState>((set, get) => ({
   // Fetch all Linear data (status + metadata)
   fetchAllData: async () => {
     const state = get()
-    // Always check status for freshness when called from dialog
     await state.checkStatus()
 
     const updatedState = get()
@@ -312,13 +278,7 @@ export const useLinearDataStore = create<LinearDataState>((set, get) => ({
   // Reset all data
   reset: () =>
     set({
-      metadata: {
-        teams: [],
-        projects: [],
-        users: [],
-        workflowStates: [],
-        preference: null
-      },
+      metadata: { ...emptyMetadata },
       isLoadingMetadata: false,
       metadataError: undefined,
       metadataLastFetched: null,

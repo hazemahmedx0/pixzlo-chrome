@@ -100,7 +100,7 @@ const FigmaAuthPrompt = memo(
               <AlertCircle className="mt-0.5 h-4 w-4 text-red-500" />
               <div className="text-sm text-red-700">
                 <p className="font-medium">Authentication Failed</p>
-                <p className="mt-1">{error.message}</p>
+                <p className="mt-1">{error}</p>
               </div>
             </div>
           )}

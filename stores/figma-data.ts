@@ -1,7 +1,19 @@
+/**
+ * Figma Data Store
+ *
+ * Manages Figma integration state including authentication, design links,
+ * and user preferences.
+ *
+ * Uses shared base integration store patterns for consistency with Linear store.
+ */
+
 import { FigmaService } from "@/lib/figma-service"
 import type { FigmaAuthStatus, FigmaDesignLink } from "@/types/figma"
 import { create } from "zustand"
 
+import { DEFAULT_CACHE_DURATION, extractErrorMessage } from "./base/integration-store"
+
+// Type definitions
 interface FigmaPreference {
   id: string
   lastUsedFrameId: string
@@ -26,18 +38,28 @@ interface FigmaMetadata {
 }
 
 interface FigmaDataState {
+  // Figma metadata
   metadata: FigmaMetadata
+
+  // Loading and error states
   isLoadingMetadata: boolean
   metadataError?: string
   metadataLastFetched: number | null
 
+  // Integration status
   isConnected: boolean
   isLoadingStatus: boolean
   statusError?: string
 
+  // Actions - Fetching
   fetchMetadata: (websiteUrl?: string) => Promise<void>
   refreshMetadata: (websiteUrl?: string) => Promise<void>
+
+  // Actions - Helpers
   getAccessToken: () => string | undefined
+  isMetadataStale: () => boolean
+
+  // Actions - Updates
   updatePreference: (update: {
     websiteUrl: string
     frameId: string
@@ -54,31 +76,42 @@ interface FigmaDataState {
     thumbnail_url?: string
   }) => Promise<boolean>
   deleteDesignLink: (linkId: string) => Promise<boolean>
+
+  // Actions - Setters
   setStatus: (status: FigmaAuthStatus | null) => void
   setMetadata: (metadata: FigmaMetadata) => void
   reset: () => void
 }
 
-const CACHE_DURATION = 5 * 60 * 1000
-
+// Initial empty metadata
 const emptyMetadata: FigmaMetadata = {
-  integration: undefined,
-  token: undefined,
-  website: undefined,
+  integration: null,
+  token: null,
+  website: null,
   designLinks: [],
-  preference: undefined
+  preference: null
 }
 
+/**
+ * Helper to normalize design links from API response
+ */
+const normalizeDesignLinks = (links?: FigmaDesignLink[]): FigmaDesignLink[] =>
+  links?.map((link) => ({
+    ...link,
+    figma_frame_id: link.figma_frame_id
+  })) ?? []
+
 export const useFigmaDataStore = create<FigmaDataState>((set, get) => ({
-  metadata: emptyMetadata,
+  // Initial state
+  metadata: { ...emptyMetadata },
   isLoadingMetadata: false,
   metadataError: undefined,
-  metadataLastFetched: undefined,
-
+  metadataLastFetched: null,
   isConnected: false,
   isLoadingStatus: false,
   statusError: undefined,
 
+  // Setters
   setStatus: (status) =>
     set({
       isConnected: Boolean(status?.connected && status.integration?.is_active),
@@ -100,18 +133,24 @@ export const useFigmaDataStore = create<FigmaDataState>((set, get) => ({
       isLoadingStatus: false
     }),
 
+  // Check if metadata is stale
+  isMetadataStale: () => {
+    const state = get()
+    if (!state.metadataLastFetched) return true
+    return Date.now() - state.metadataLastFetched > DEFAULT_CACHE_DURATION
+  },
+
+  // Fetch Figma metadata
   fetchMetadata: async (websiteUrl?: string) => {
     const state = get()
-    if (state.isLoadingMetadata) {
-      return
-    }
+    if (state.isLoadingMetadata) return
 
     const urlToUse = websiteUrl ?? window.location.href
 
     // Check if we already have fresh data for this URL
     if (
       state.metadataLastFetched &&
-      Date.now() - state.metadataLastFetched < CACHE_DURATION &&
+      Date.now() - state.metadataLastFetched < DEFAULT_CACHE_DURATION &&
       state.metadata.website?.url === urlToUse
     ) {
       console.log("📋 Using cached Figma metadata for:", urlToUse)
@@ -126,7 +165,7 @@ export const useFigmaDataStore = create<FigmaDataState>((set, get) => ({
 
       if (!response.success || !response.data) {
         set({
-          metadata: emptyMetadata,
+          metadata: { ...emptyMetadata },
           isLoadingMetadata: false,
           metadataError: response.error || "Failed to fetch Figma metadata",
           metadataLastFetched: null,
@@ -135,16 +174,10 @@ export const useFigmaDataStore = create<FigmaDataState>((set, get) => ({
         return
       }
 
-      const normalizedDesignLinks =
-        response.data.designLinks?.map((link) => ({
-          ...link,
-          figma_frame_id: link.figma_frame_id
-        })) ?? []
-
       set({
         metadata: {
           ...response.data,
-          designLinks: normalizedDesignLinks
+          designLinks: normalizeDesignLinks(response.data.designLinks)
         },
         isLoadingMetadata: false,
         metadataError: undefined,
@@ -156,12 +189,9 @@ export const useFigmaDataStore = create<FigmaDataState>((set, get) => ({
     } catch (error) {
       console.error("❌ Error fetching Figma metadata:", error)
       set({
-        metadata: emptyMetadata,
+        metadata: { ...emptyMetadata },
         isLoadingMetadata: false,
-        metadataError:
-          error instanceof Error
-            ? error.message
-            : "Failed to fetch Figma metadata",
+        metadataError: extractErrorMessage(error),
         metadataLastFetched: null,
         isConnected: false
       })
@@ -177,6 +207,7 @@ export const useFigmaDataStore = create<FigmaDataState>((set, get) => ({
     return get().metadata.token?.accessToken
   },
 
+  // Update Figma preference
   updatePreference: async (update) => {
     const service = FigmaService.getInstance()
     const response = await service.updatePreference(update)
@@ -184,23 +215,17 @@ export const useFigmaDataStore = create<FigmaDataState>((set, get) => ({
     if (!response.success || !response.data) {
       set({
         metadataError: response.error || "Failed to update Figma preference",
-        metadata: emptyMetadata,
+        metadata: { ...emptyMetadata },
         metadataLastFetched: null,
         isConnected: false
       })
       return
     }
 
-    const normalizedDesignLinks =
-      response.data.designLinks?.map((link) => ({
-        ...link,
-        figma_frame_id: link.figma_frame_id
-      })) ?? []
-
     set({
       metadata: {
         ...response.data,
-        designLinks: normalizedDesignLinks
+        designLinks: normalizeDesignLinks(response.data.designLinks)
       },
       metadataLastFetched: Date.now(),
       metadataError: undefined,
@@ -208,6 +233,7 @@ export const useFigmaDataStore = create<FigmaDataState>((set, get) => ({
     })
   },
 
+  // Create a new design link
   createDesignLink: async (link) => {
     const service = FigmaService.getInstance()
     const response = await service.createDesignLink(link)
@@ -221,6 +247,7 @@ export const useFigmaDataStore = create<FigmaDataState>((set, get) => ({
     return true
   },
 
+  // Delete a design link
   deleteDesignLink: async (linkId) => {
     const service = FigmaService.getInstance()
     const response = await service.deleteDesignLink(linkId)
@@ -234,9 +261,10 @@ export const useFigmaDataStore = create<FigmaDataState>((set, get) => ({
     return true
   },
 
+  // Reset all data
   reset: () =>
     set({
-      metadata: emptyMetadata,
+      metadata: { ...emptyMetadata },
       isLoadingMetadata: false,
       metadataError: undefined,
       metadataLastFetched: null,

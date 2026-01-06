@@ -1,6 +1,16 @@
 import { useFigmaDataStore } from "@/stores/figma-data"
 import { useCallback, useMemo } from "react"
 
+interface FigmaPreference {
+  id: string
+  lastUsedFrameId: string
+  lastUsedFrameName: string | null
+  lastUsedFileId: string
+  frameUrl: string | null
+  frameImageUrl: string | null
+  updatedAt: string
+}
+
 interface FigmaPreferenceUpdate {
   websiteUrl: string
   frameId: string
@@ -11,7 +21,7 @@ interface FigmaPreferenceUpdate {
 }
 
 interface FigmaPreferenceState {
-  preference: ReturnType<typeof useFigmaDataStore>["metadata"]["preference"]
+  preference: FigmaPreference | null
   isLoading: boolean
   error?: string
   hasPreferenceForWebsite: (websiteUrl: string) => boolean
