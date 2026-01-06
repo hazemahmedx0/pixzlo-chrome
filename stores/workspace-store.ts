@@ -1,65 +1,36 @@
+import {
+  getStorageValue,
+  removeStorageValue,
+  setStorageValue,
+  STORAGE_KEYS
+} from "@/lib/utils/chrome-storage"
 import type { Workspace } from "@/types/profile"
-
-const STORAGE_KEY = "pixzlo_selected_workspace_id"
 
 /**
  * Workspace Store - Manages the selected workspace across the extension
- * Uses chrome.storage.local for background script compatibility
+ *
+ * Uses the centralized chrome-storage utilities for consistent storage access.
  */
 
 /**
- * Get the currently selected workspace ID from chrome.storage
+ * Get the currently selected workspace ID from storage
  */
 export async function getSelectedWorkspaceId(): Promise<string | undefined> {
-  try {
-    if (typeof chrome !== "undefined" && chrome.storage?.local) {
-      const result = await chrome.storage.local.get(STORAGE_KEY)
-      return result[STORAGE_KEY] as string | undefined
-    }
-    // Fallback to localStorage for popup context
-    if (typeof localStorage !== "undefined") {
-    return localStorage.getItem(STORAGE_KEY) ?? undefined
-    }
-    return undefined
-  } catch (error) {
-    console.error("[WorkspaceStore] Failed to get workspace ID:", error)
-    return undefined
-  }
+  return getStorageValue<string>(STORAGE_KEYS.WORKSPACE_ID)
 }
 
 /**
  * Set the selected workspace ID in storage
  */
-export async function setSelectedWorkspaceId(
-  workspaceId: string
-): Promise<void> {
-  try {
-    // Save to both storages for cross-context compatibility
-    if (typeof chrome !== "undefined" && chrome.storage?.local) {
-      await chrome.storage.local.set({ [STORAGE_KEY]: workspaceId })
-    }
-    if (typeof localStorage !== "undefined") {
-      localStorage.setItem(STORAGE_KEY, workspaceId)
-    }
-  } catch (error) {
-    console.error("[WorkspaceStore] Failed to save workspace ID:", error)
-  }
+export async function setSelectedWorkspaceId(workspaceId: string): Promise<void> {
+  await setStorageValue(STORAGE_KEYS.WORKSPACE_ID, workspaceId)
 }
 
 /**
  * Clear the selected workspace ID from storage
  */
 export async function clearSelectedWorkspaceId(): Promise<void> {
-  try {
-    if (typeof chrome !== "undefined" && chrome.storage?.local) {
-      await chrome.storage.local.remove(STORAGE_KEY)
-    }
-    if (typeof localStorage !== "undefined") {
-      localStorage.removeItem(STORAGE_KEY)
-    }
-  } catch (error) {
-    console.error("[WorkspaceStore] Failed to clear workspace ID:", error)
-  }
+  await removeStorageValue(STORAGE_KEYS.WORKSPACE_ID)
 }
 
 // Helper to get workspace ID (supports both API formats)

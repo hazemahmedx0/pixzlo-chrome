@@ -16,13 +16,7 @@ import {
 import { Layer, Stage } from "react-konva"
 import useImage from "use-image"
 
-import {
-  ArrowElement,
-  CircleElement,
-  PenElement,
-  RectangleElement,
-  TextElement
-} from "./elements"
+import { getElementRenderer } from "./elements"
 
 const DrawingCanvas = forwardRef<any, DrawingCanvasProps>(
   (
@@ -143,7 +137,7 @@ const DrawingCanvas = forwardRef<any, DrawingCanvasProps>(
       }
     }, [renderElements, onElementsChange])
 
-    // Render individual elements
+    // Render individual elements using the element registry (Open/Closed Principle)
     const renderElement = useCallback(
       (element: DrawingElement, index: number) => {
         console.log(
@@ -157,23 +151,16 @@ const DrawingCanvas = forwardRef<any, DrawingCanvasProps>(
         // Ensure each element has a unique key that changes when content changes
         const elementKey = `${element.type}-${element.id}-${index}`
 
-        switch (element.type) {
-          case "arrow":
-            return <ArrowElement key={elementKey} element={element} />
-          case "pen":
-            return <PenElement key={elementKey} element={element} />
-          case "rectangle":
-            return <RectangleElement key={elementKey} element={element} />
-          case "circle":
-            return <CircleElement key={elementKey} element={element} />
-          case "text":
-            return <TextElement key={elementKey} element={element} />
-          default:
-            // TypeScript exhaustiveness check - this should never happen
-            const _exhaustiveCheck: never = element
-            console.log("Unknown element type:", _exhaustiveCheck)
-            return null
+        // Get the renderer from the registry - allows adding new element types
+        // without modifying this component
+        const ElementRenderer = getElementRenderer(element.type)
+
+        if (!ElementRenderer) {
+          console.warn(`No renderer registered for element type: ${element.type}`)
+          return null
         }
+
+        return <ElementRenderer key={elementKey} element={element} />
       },
       []
     )
