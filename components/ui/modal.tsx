@@ -41,20 +41,10 @@ const Modal = memo(
       return () => document.removeEventListener("keydown", handleEscape)
     }, [isOpen, onClose])
 
-    // Prevent body scroll when modal is open (only if this is the primary modal)
-    useEffect(() => {
-      if (isOpen && zIndex <= 2147483648) {
-        document.body.style.overflow = "hidden"
-      } else if (!isOpen && zIndex <= 2147483648) {
-        document.body.style.overflow = ""
-      }
-
-      return () => {
-        if (zIndex <= 2147483648) {
-          document.body.style.overflow = ""
-        }
-      }
-    }, [isOpen, zIndex])
+    // NOTE: We intentionally do NOT prevent body scroll here.
+    // This extension runs in a shadow DOM and should not manipulate the host page's styles.
+    // Blocking body scroll would interfere with the user's ability to interact with the host page
+    // (e.g., scrolling, clicking inputs in dialogs on the page).
 
     if (!isOpen) return null
 
@@ -67,6 +57,8 @@ const Modal = memo(
     console.log("🎯 Modal rendering inline (not portal)")
 
     // Render inline - this stays within Plasmo's shadow root automatically
+    // Use pointer-events: none on the overlay to allow clicks to pass through to the host page,
+    // but pointer-events: auto on the modal content so users can interact with the modal itself.
     return (
       <div
         className={`fixed inset-0 flex h-screen w-screen items-center justify-center p-4 ${overlayClassName}`}
@@ -77,20 +69,19 @@ const Modal = memo(
           left: 0,
           right: 0,
           bottom: 0,
-          pointerEvents: "auto"
+          pointerEvents: "none" // Allow clicks to pass through to the host page
         }}
-        onClick={handleOverlayClick}
         data-pixzlo-ui="figma-modal">
-        {/* Backdrop */}
+        {/* Backdrop - also pointer-events: none to let clicks pass through */}
         <div
           className="absolute inset-0 bg-black/30 backdrop-blur-sm"
-          style={{ zIndex: 1 }}
+          style={{ zIndex: 1, pointerEvents: "none" }}
         />
 
-        {/* Modal Content */}
+        {/* Modal Content - enable pointer-events for modal interactions */}
         <div
           className={`relative h-full w-full overflow-auto rounded-lg bg-white shadow-2xl ring-1 ring-black/5 ${className}`}
-          style={{ zIndex: 10, minWidth: "400px" }}
+          style={{ zIndex: 10, minWidth: "400px", pointerEvents: "auto" }}
           onClick={(e) => e.stopPropagation()}>
           {showCloseButton && (
             <button

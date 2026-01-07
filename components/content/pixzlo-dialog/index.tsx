@@ -281,7 +281,8 @@ const PixzloDialog = memo(
           alignItems: "center",
           justifyContent: "center",
           fontFamily:
-            'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif'
+            'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif',
+          pointerEvents: "none" // Allow clicks to pass through to the host page
         }}>
         <div
           className="flex flex-col overflow-hidden rounded-lg bg-white shadow-lg"
@@ -292,7 +293,8 @@ const PixzloDialog = memo(
             right: "40px",
             bottom: "40px",
             width: "calc(100vw - 80px)",
-            height: "calc(100vh - 80px)"
+            height: "calc(100vh - 80px)",
+            pointerEvents: "auto" // Enable interactions on the dialog content
           }}>
           <div className="flex h-full flex-col">
             {/* Header */}
@@ -359,7 +361,8 @@ const PixzloDialog = memo(
               left: 0,
               right: 0,
               bottom: 0,
-              backgroundColor: "rgba(0, 0, 0, 0.3)" // Additional 30% black background
+              backgroundColor: "rgba(0, 0, 0, 0.3)", // Additional 30% black background
+              pointerEvents: "none" // Allow clicks to pass through to the host page
             }}
             data-pixzlo-ui="figma-popup-overlay">
             {/* Modal Content */}
