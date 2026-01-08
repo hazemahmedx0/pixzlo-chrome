@@ -97,6 +97,7 @@ const PixzloDialog = memo(
 
     // Store ref to the drawing canvas for export
     const drawingCanvasRef = useRef<any>(null)
+    const dialogRootRef = useRef<HTMLDivElement>(null)
 
     // Handle drawing save
     const handleDrawingSave = (
@@ -246,6 +247,88 @@ const PixzloDialog = memo(
     const currentScreenshot = storeScreenshots[0]
     const isElementCapture = currentScreenshot?.type === "element"
     const showStylingTab = isElementCapture
+    const isDialogRendered = isOpen && !!currentScreenshot
+
+    useEffect(() => {
+      if (!isDialogRendered) {
+        return
+      }
+
+      const dialogRoot = dialogRootRef.current
+      if (!dialogRoot) {
+        return
+      }
+
+      const rootNode = dialogRoot.getRootNode()
+      const dialogHost =
+        rootNode instanceof ShadowRoot ? rootNode.host : null
+
+      const isDialogNode = (node: EventTarget | null): boolean => {
+        if (!node || !(node instanceof Node)) {
+          return false
+        }
+
+        if (dialogRoot.contains(node)) {
+          return true
+        }
+
+        return !!dialogHost && node === dialogHost
+      }
+
+      const isDialogFocusEvent = (event: FocusEvent): boolean => {
+        if (typeof event.composedPath === "function") {
+          return event
+            .composedPath()
+            .some(
+              (node) =>
+                node instanceof HTMLElement &&
+                node.dataset?.pixzloUi === "pixzlo-dialog"
+            )
+        }
+
+        return isDialogNode(event.target)
+      }
+
+      const stopHostFocusTrap = (event: FocusEvent): void => {
+        if (!isDialogFocusEvent(event)) {
+          return
+        }
+
+        event.stopPropagation()
+      }
+
+      const stopFocusOutToDialog = (event: FocusEvent): void => {
+        if (!isDialogNode(event.relatedTarget)) {
+          return
+        }
+
+        event.stopPropagation()
+      }
+
+      const useWindowCaptureFallback = !dialogHost
+
+      if (useWindowCaptureFallback) {
+        window.addEventListener("focusin", stopHostFocusTrap, true)
+        window.addEventListener("focusout", stopHostFocusTrap, true)
+      } else if (dialogHost) {
+        dialogHost.addEventListener("focusin", stopHostFocusTrap)
+        dialogHost.addEventListener("focusout", stopHostFocusTrap)
+      }
+
+      window.addEventListener("focusout", stopFocusOutToDialog, true)
+
+      return () => {
+        if (useWindowCaptureFallback) {
+          window.removeEventListener("focusin", stopHostFocusTrap, true)
+          window.removeEventListener("focusout", stopHostFocusTrap, true)
+        } else if (dialogHost) {
+          dialogHost.removeEventListener("focusin", stopHostFocusTrap)
+          dialogHost.removeEventListener("focusout", stopHostFocusTrap)
+        }
+
+        window.removeEventListener("focusout", stopFocusOutToDialog, true)
+      }
+    }, [isDialogRendered])
 
     console.log("🎨 PixzloDialog render check:", {
       isOpen,
@@ -266,6 +349,7 @@ const PixzloDialog = memo(
 
     return (
       <div
+        ref={dialogRootRef}
         className="fixed inset-0 z-[2147483647] flex text-gray-900"
         data-pixzlo-ui="pixzlo-dialog"
         style={{
