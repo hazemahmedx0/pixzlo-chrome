@@ -656,6 +656,39 @@ plasmo-csui[data-active="true"] {
   visibility: visible !important;
 }
 
+/* 
+ * Shadow DOM Event Isolation - Fix for Radix UI Focus Trap Conflict
+ * When a Radix/Shadcn dialog is open on the host page, it sets:
+ * 1. aria-hidden="true" on siblings of the dialog portal
+ * 2. pointer-events: none on the "inert" area
+ * 3. Global event listeners that intercept wheel/focus events
+ * 
+ * These styles ensure our extension remains interactive regardless of host page state.
+ */
+:host(plasmo-csui) {
+  /* Force the extension to be clickable regardless of what Radix does to the body */
+  pointer-events: auto !important;
+  /* Prevent aria-hidden from affecting our content */
+  aria-hidden: false !important;
+}
+
+/* 
+ * IMPORTANT: Only apply pointer-events: auto to interactive elements inside dialogs/popovers.
+ * Do NOT apply to all elements (*) because it would override intentional pointer-events-none
+ * on overlay elements like ElementHighlighter and SelectionOverlay.
+ */
+:host(plasmo-csui) [data-pixzlo-ui="pixzlo-dialog"],
+:host(plasmo-csui) [data-pixzlo-ui="figma-popup-overlay"],
+:host(plasmo-csui) [data-pixzlo-ui="floating-toolbar"] {
+  pointer-events: auto !important;
+}
+
+/* Scrollable containers should capture wheel events */
+:host(plasmo-csui) .custom-scrollbar,
+:host(plasmo-csui) [data-scrollable="true"] {
+  overscroll-behavior: contain;
+}
+
 /* Custom Scrollbar Styles */
 body {
   --sb-track-color: #ffffff;

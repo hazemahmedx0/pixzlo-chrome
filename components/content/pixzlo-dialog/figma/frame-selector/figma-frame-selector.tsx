@@ -321,6 +321,8 @@ const FigmaFrameSelector = memo(
         <div
           ref={scrollContainerRef}
           className="flex-1 overflow-auto bg-gray-50"
+          data-scrollable="true"
+          onWheel={(e) => e.stopPropagation()}
           style={{ scrollBehavior: "smooth" }}>
           {/* Left-aligned container */}
           <div className="flex justify-start">

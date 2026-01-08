@@ -42,7 +42,10 @@ const StylingTab = memo(
           />
 
           {/* Property rows */}
-          <div className="custom-scrollbar flex-1 overflow-y-auto">
+          <div
+            className="custom-scrollbar flex-1 overflow-y-auto"
+            data-scrollable="true"
+            onWheel={(e) => e.stopPropagation()}>
             <div className="flex flex-col">
               {extractedCSS.properties.map((property, index) => (
                 <CSSPropertyRow

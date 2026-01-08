@@ -969,7 +969,10 @@ const FigmaDesignManager = memo(
 
     // Render appropriate view based on current mode
     return (
-      <div className="custom-scrollbar flex h-full w-full">
+      <div
+        className="custom-scrollbar flex h-full w-full"
+        data-scrollable="true"
+        onWheel={(e) => e.stopPropagation()}>
         {viewMode === "add-new" && (
           <FigmaUrlInput
             figmaUrl={figmaUrl}

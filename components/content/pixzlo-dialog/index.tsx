@@ -97,6 +97,7 @@ const PixzloDialog = memo(
 
     // Store ref to the drawing canvas for export
     const drawingCanvasRef = useRef<any>(null)
+    const dialogRootRef = useRef<HTMLDivElement>(null)
 
     // Handle drawing save
     const handleDrawingSave = (
@@ -178,9 +179,7 @@ const PixzloDialog = memo(
       }
 
       hasRefreshedForPopupRef.current = true
-      console.log(
-        "🎯 Figma popup opened - refreshing designs from backend..."
-      )
+      console.log("🎯 Figma popup opened - refreshing designs from backend...")
       void refreshDesigns()
     }, [isFigmaPopupOpen, designsLoading, refreshDesigns])
 
@@ -248,6 +247,88 @@ const PixzloDialog = memo(
     const currentScreenshot = storeScreenshots[0]
     const isElementCapture = currentScreenshot?.type === "element"
     const showStylingTab = isElementCapture
+    const isDialogRendered = isOpen && !!currentScreenshot
+
+    useEffect(() => {
+      if (!isDialogRendered) {
+        return
+      }
+
+      const dialogRoot = dialogRootRef.current
+      if (!dialogRoot) {
+        return
+      }
+
+      const rootNode = dialogRoot.getRootNode()
+      const dialogHost =
+        rootNode instanceof ShadowRoot ? rootNode.host : null
+
+      const isDialogNode = (node: EventTarget | null): boolean => {
+        if (!node || !(node instanceof Node)) {
+          return false
+        }
+
+        if (dialogRoot.contains(node)) {
+          return true
+        }
+
+        return !!dialogHost && node === dialogHost
+      }
+
+      const isDialogFocusEvent = (event: FocusEvent): boolean => {
+        if (typeof event.composedPath === "function") {
+          return event
+            .composedPath()
+            .some(
+              (node) =>
+                node instanceof HTMLElement &&
+                node.dataset?.pixzloUi === "pixzlo-dialog"
+            )
+        }
+
+        return isDialogNode(event.target)
+      }
+
+      const stopHostFocusTrap = (event: FocusEvent): void => {
+        if (!isDialogFocusEvent(event)) {
+          return
+        }
+
+        event.stopPropagation()
+      }
+
+      const stopFocusOutToDialog = (event: FocusEvent): void => {
+        if (!isDialogNode(event.relatedTarget)) {
+          return
+        }
+
+        event.stopPropagation()
+      }
+
+      const useWindowCaptureFallback = !dialogHost
+
+      if (useWindowCaptureFallback) {
+        window.addEventListener("focusin", stopHostFocusTrap, true)
+        window.addEventListener("focusout", stopHostFocusTrap, true)
+      } else if (dialogHost) {
+        dialogHost.addEventListener("focusin", stopHostFocusTrap)
+        dialogHost.addEventListener("focusout", stopHostFocusTrap)
+      }
+
+      window.addEventListener("focusout", stopFocusOutToDialog, true)
+
+      return () => {
+        if (useWindowCaptureFallback) {
+          window.removeEventListener("focusin", stopHostFocusTrap, true)
+          window.removeEventListener("focusout", stopHostFocusTrap, true)
+        } else if (dialogHost) {
+          dialogHost.removeEventListener("focusin", stopHostFocusTrap)
+          dialogHost.removeEventListener("focusout", stopHostFocusTrap)
+        }
+
+        window.removeEventListener("focusout", stopFocusOutToDialog, true)
+      }
+    }, [isDialogRendered])
 
     console.log("🎨 PixzloDialog render check:", {
       isOpen,
@@ -268,6 +349,7 @@ const PixzloDialog = memo(
 
     return (
       <div
+        ref={dialogRootRef}
         className="fixed inset-0 z-[2147483647] flex text-gray-900"
         data-pixzlo-ui="pixzlo-dialog"
         style={{
@@ -281,7 +363,8 @@ const PixzloDialog = memo(
           alignItems: "center",
           justifyContent: "center",
           fontFamily:
-            'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif'
+            'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif',
+          pointerEvents: "none" // Allow clicks to pass through to the host page
         }}>
         <div
           className="flex flex-col overflow-hidden rounded-lg bg-white shadow-lg"
@@ -292,7 +375,8 @@ const PixzloDialog = memo(
             right: "40px",
             bottom: "40px",
             width: "calc(100vw - 80px)",
-            height: "calc(100vh - 80px)"
+            height: "calc(100vh - 80px)",
+            pointerEvents: "auto" // Enable interactions on the dialog content
           }}>
           <div className="flex h-full flex-col">
             {/* Header */}
@@ -359,7 +443,8 @@ const PixzloDialog = memo(
               left: 0,
               right: 0,
               bottom: 0,
-              backgroundColor: "rgba(0, 0, 0, 0.3)" // Additional 30% black background
+              backgroundColor: "rgba(0, 0, 0, 0.3)", // Additional 30% black background
+              pointerEvents: "none" // Allow clicks to pass through to the host page
             }}
             data-pixzlo-ui="figma-popup-overlay">
             {/* Modal Content */}
@@ -397,7 +482,9 @@ const PixzloDialog = memo(
               {/* Content Area with proper height constraints */}
               <div
                 className="flex-1 overflow-hidden"
-                style={{ height: "calc(100% - 58px)" }}>
+                style={{ height: "calc(100% - 58px)" }}
+                data-scrollable="true"
+                onWheel={(e) => e.stopPropagation()}>
                 <FigmaModalContent
                   isOpen={isFigmaPopupOpen}
                   onClose={() => {

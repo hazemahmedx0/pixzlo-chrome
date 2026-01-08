@@ -1,6 +1,74 @@
 import type { Position, SelectionArea } from "@/types/ui"
 import { useCallback, useEffect, useRef, useState } from "react"
 
+const TOOLBAR_SELECTOR = "[data-pixzlo-ui='floating-toolbar']"
+
+/**
+ * Find the toolbar element, checking both document and shadow DOM
+ */
+const findToolbarElement = (): HTMLElement | null => {
+  // First try document (in case it's not in shadow DOM)
+  const toolbar = document.querySelector(TOOLBAR_SELECTOR) as HTMLElement | null
+  if (toolbar) return toolbar
+
+  // Check inside shadow DOM (plasmo-csui)
+  const shadowHosts = document.querySelectorAll("plasmo-csui")
+  for (const host of shadowHosts) {
+    const shadowRoot = host.shadowRoot
+    if (shadowRoot) {
+      const shadowToolbar = shadowRoot.querySelector(TOOLBAR_SELECTOR) as HTMLElement | null
+      if (shadowToolbar) return shadowToolbar
+    }
+  }
+
+  return null
+}
+
+/**
+ * Check if coordinates are within the toolbar bounds
+ */
+const isWithinToolbar = (clientX: number, clientY: number): boolean => {
+  const toolbar = findToolbarElement()
+  if (!toolbar) return false
+
+  const rect = toolbar.getBoundingClientRect()
+  return (
+    clientX >= rect.left &&
+    clientX <= rect.right &&
+    clientY >= rect.top &&
+    clientY <= rect.bottom
+  )
+}
+
+const isToolbarEvent = (event: Event): boolean => {
+  const target = event.target as HTMLElement | null
+  if (target?.closest?.(TOOLBAR_SELECTOR)) return true
+
+  // Check composed path for shadow DOM traversal
+  const path =
+    typeof (event as MouseEvent).composedPath === "function"
+      ? (event as MouseEvent).composedPath()
+      : []
+
+  const pathContainsToolbar = path.some((node) => {
+    if (!(node instanceof HTMLElement)) return false
+    return (
+      node.dataset?.pixzloUi === "floating-toolbar" ||
+      !!node.closest?.(TOOLBAR_SELECTOR)
+    )
+  })
+
+  if (pathContainsToolbar) return true
+
+  // Fallback: coordinate-based check for shadow DOM
+  const mouseEvent = event as MouseEvent
+  if (mouseEvent.clientX !== undefined && mouseEvent.clientY !== undefined) {
+    return isWithinToolbar(mouseEvent.clientX, mouseEvent.clientY)
+  }
+
+  return false
+}
+
 interface SelectionOverlayProps {
   isActive: boolean
   onSelectionComplete: (area: {
@@ -42,6 +110,15 @@ const SelectionOverlay = ({
     }
   }, [])
 
+  useEffect(() => {
+    if (!isActive) return
+    const previousCursor = document.body.style.cursor
+    document.body.style.cursor = "crosshair"
+    return () => {
+      document.body.style.cursor = previousCursor
+    }
+  }, [isActive])
+
   const getMousePosition = useCallback((e: MouseEvent): Position => {
     // For rendering, we use clientX/Y which are viewport-relative.
     return {
@@ -71,33 +148,14 @@ const SelectionOverlay = ({
         target.tagName === "BUTTON" && isDirectToolbarElement
       const isIconElement = target.tagName === "svg" && isDirectToolbarElement
 
-      // Additional coordinate-based check - this is the most reliable
-      const elementAtPoint = document.elementFromPoint(e.clientX, e.clientY)
-      const toolbarAtPoint = elementAtPoint?.closest(
-        "[data-pixzlo-ui='floating-toolbar']"
-      )
-
-      // For PLASMO-CSUI elements, check if the click coordinates are within toolbar bounds
-      let isWithinToolbarBounds = false
-      if (target.tagName === "PLASMO-CSUI") {
-        const toolbar = document.querySelector(
-          "[data-pixzlo-ui='floating-toolbar']"
-        )
-        if (toolbar) {
-          const rect = toolbar.getBoundingClientRect()
-          isWithinToolbarBounds =
-            e.clientX >= rect.left &&
-            e.clientX <= rect.right &&
-            e.clientY >= rect.top &&
-            e.clientY <= rect.bottom
-        }
-      }
+      // Coordinate-based check - most reliable for Shadow DOM
+      const isWithinToolbarBounds = isWithinToolbar(e.clientX, e.clientY)
 
       const isToolbarClick =
+        isToolbarEvent(e) ||
         isDirectToolbarElement ||
         isButtonElement ||
         isIconElement ||
-        toolbarAtPoint ||
         isWithinToolbarBounds
 
       console.log("🖱️ SelectionOverlay: Mouse down on:", {
@@ -106,8 +164,7 @@ const SelectionOverlay = ({
         isDirectToolbarElement: !!isDirectToolbarElement,
         isButtonElement: !!isButtonElement,
         isIconElement: !!isIconElement,
-        toolbarAtPoint: !!toolbarAtPoint,
-        isWithinToolbarBounds: !!isWithinToolbarBounds,
+        isWithinToolbarBounds,
         isToolbarClick: !!isToolbarClick,
         coordinates: { x: e.clientX, y: e.clientY }
       })
@@ -226,7 +283,7 @@ const SelectionOverlay = ({
       const isDirectToolbarElement = target.closest(
         "[data-pixzlo-ui='floating-toolbar']"
       )
-      const isToolbarClick = !!isDirectToolbarElement
+      const isToolbarClick = isToolbarEvent(e) || !!isDirectToolbarElement
 
       if (isToolbarClick) {
         // Allow toolbar right-clicks to pass through
@@ -298,6 +355,7 @@ const SelectionOverlay = ({
       data-pixzlo-ui="selection-overlay"
       style={{
         backgroundColor: "rgba(0, 0, 0, 0.05)",
+        pointerEvents: "none",
         fontFamily:
           'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif'
       }}>

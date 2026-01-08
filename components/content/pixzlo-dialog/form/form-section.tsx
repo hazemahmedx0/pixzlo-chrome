@@ -182,7 +182,10 @@ const FormSection = memo(
             value={title}
             onChange={(e) => handleTitleChange(e.target.value)}
             onKeyDown={handleKeyDown}
+            // Event isolation - prevent Radix UI focus-trap interference
             onFocus={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
             maxLength={TITLE_MAX_LENGTH}
           />
         </div>
@@ -203,7 +206,10 @@ const FormSection = memo(
             value={description}
             onChange={(e) => handleDescriptionChange(e.target.value)}
             onKeyDown={handleKeyDown}
+            // Event isolation - prevent Radix UI focus-trap interference
             onFocus={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
             rows={3}
             maxLength={DESCRIPTION_MAX_LENGTH}
           />

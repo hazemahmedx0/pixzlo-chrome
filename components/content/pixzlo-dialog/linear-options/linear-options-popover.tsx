@@ -97,7 +97,10 @@ export function LinearOptionsPopover({
         align="start"
         sideOffset={8}
         aria-label="Linear options">
-        <div className="flex max-h-[420px] flex-col gap-4 overflow-y-auto p-4">
+        <div
+          className="flex max-h-[420px] flex-col gap-4 overflow-y-auto p-4"
+          data-scrollable="true"
+          onWheel={(e) => e.stopPropagation()}>
           <header className="border-b pb-2">
             <h4 className="text-sm font-medium text-gray-800">
               Linear Configuration

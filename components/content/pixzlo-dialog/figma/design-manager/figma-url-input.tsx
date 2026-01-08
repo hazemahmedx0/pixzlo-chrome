@@ -32,7 +32,10 @@ const FigmaUrlInput = memo(
     showBack = false
   }: FigmaUrlInputProps): JSX.Element => {
     return (
-      <div className="custom-scrollbar flex h-full w-full overflow-y-auto p-6">
+      <div
+        className="custom-scrollbar flex h-full w-full overflow-y-auto p-6"
+        data-scrollable="true"
+        onWheel={(e) => e.stopPropagation()}>
         <div className="m-auto max-w-md">
           {/* SVG Image */}
 
@@ -60,6 +63,10 @@ const FigmaUrlInput = memo(
                 value={figmaUrl}
                 onChange={(e) => setFigmaUrl(e.target.value)}
                 className="mt-1"
+                // Event isolation - prevent Radix UI focus-trap interference
+                onFocus={(e) => e.stopPropagation()}
+                onPointerDown={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
               />
               <p className="mt-2 text-paragraph-xs text-gray-500">
                 Paste a link to a specific Figma frame. Ensure you have edit
