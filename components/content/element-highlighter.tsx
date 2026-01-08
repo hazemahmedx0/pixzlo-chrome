@@ -1,5 +1,78 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
+const EXTENSION_UI_SELECTOR =
+  "[data-pixzlo-ui], [data-pixzlo-select-portal], [data-pixzlo-popover-portal]"
+const TOOLBAR_SELECTOR = "[data-pixzlo-ui='floating-toolbar']"
+
+const isExtensionUIElement = (node: HTMLElement | null): boolean =>
+  !!node?.closest(EXTENSION_UI_SELECTOR)
+
+/**
+ * Find the toolbar element, checking both document and shadow DOM
+ */
+const findToolbarElement = (): HTMLElement | null => {
+  // First try document (in case it's not in shadow DOM)
+  const toolbar = document.querySelector(TOOLBAR_SELECTOR) as HTMLElement | null
+  if (toolbar) return toolbar
+
+  // Check inside shadow DOM (plasmo-csui)
+  const shadowHosts = document.querySelectorAll("plasmo-csui")
+  for (const host of shadowHosts) {
+    const shadowRoot = host.shadowRoot
+    if (shadowRoot) {
+      const shadowToolbar = shadowRoot.querySelector(TOOLBAR_SELECTOR) as HTMLElement | null
+      if (shadowToolbar) return shadowToolbar
+    }
+  }
+
+  return null
+}
+
+/**
+ * Check if coordinates are within the toolbar bounds
+ */
+const isWithinToolbar = (clientX: number, clientY: number): boolean => {
+  const toolbar = findToolbarElement()
+  if (!toolbar) return false
+
+  const rect = toolbar.getBoundingClientRect()
+  return (
+    clientX >= rect.left &&
+    clientX <= rect.right &&
+    clientY >= rect.top &&
+    clientY <= rect.bottom
+  )
+}
+
+const isToolbarEvent = (event: Event): boolean => {
+  const target = event.target as HTMLElement | null
+  if (target?.closest?.(TOOLBAR_SELECTOR)) return true
+
+  // Check composed path for shadow DOM traversal
+  const path =
+    typeof (event as MouseEvent).composedPath === "function"
+      ? (event as MouseEvent).composedPath()
+      : []
+
+  const pathContainsToolbar = path.some((node) => {
+    if (!(node instanceof HTMLElement)) return false
+    return (
+      node.dataset?.pixzloUi === "floating-toolbar" ||
+      !!node.closest?.(TOOLBAR_SELECTOR)
+    )
+  })
+
+  if (pathContainsToolbar) return true
+
+  // Fallback: coordinate-based check for shadow DOM
+  const mouseEvent = event as MouseEvent
+  if (mouseEvent.clientX !== undefined && mouseEvent.clientY !== undefined) {
+    return isWithinToolbar(mouseEvent.clientX, mouseEvent.clientY)
+  }
+
+  return false
+}
+
 interface ElementHighlighterProps {
   isActive: boolean
   onElementSelect: (element: HTMLElement, rect: DOMRect) => void
@@ -93,9 +166,14 @@ const ElementHighlighter = ({
       const hostEl = rootNode instanceof ShadowRoot ? rootNode.host : null
 
       // Also exclude extension UI elements
-      const isExtensionUI = el?.closest('[data-pixzlo-ui]')
+      const isExtensionUI = isExtensionUIElement(el)
 
-      if (!el || el === document.body || el === hostEl || isExtensionUI) {
+      if (
+        !el ||
+        el === document.body ||
+        el === hostEl ||
+        isExtensionUI
+      ) {
         highlight.style.display = "none"
         paddingBox.style.display = "none"
         marginBox.style.display = "none"
@@ -221,6 +299,8 @@ const ElementHighlighter = ({
       const target = e.target as HTMLElement
       const overlayElement = overlayRef.current
 
+      const isToolbarClickByPath = isToolbarEvent(e)
+
       // Use the composed path to safely traverse through shadow DOM boundaries
       const composedPath =
         typeof e.composedPath === "function" ? e.composedPath() : []
@@ -238,43 +318,16 @@ const ElementHighlighter = ({
         target.tagName === "BUTTON" && isDirectToolbarElement
       const isIconElement = target.tagName === "svg" && isDirectToolbarElement
 
-      // Additional coordinate-based check - this is the most reliable
-      if (overlayElement) overlayElement.style.display = "none"
-      const elementAtPoint = document.elementFromPoint(e.clientX, e.clientY)
-      if (overlayElement) overlayElement.style.display = "block"
-      const toolbarAtPoint = elementAtPoint?.closest(
-        "[data-pixzlo-ui='floating-toolbar']"
-      )
-
-      // Check if PLASMO-CSUI contains toolbar by looking at its children
-      const isPlasmoUIWithToolbar =
-        target.tagName === "PLASMO-CSUI" &&
-        (target.querySelector("[data-pixzlo-ui='floating-toolbar']") ||
-          document.querySelector("[data-pixzlo-ui='floating-toolbar']"))
-
-      // For PLASMO-CSUI elements, also check if the click coordinates are within toolbar bounds
-      let isWithinToolbarBounds = false
-      if (target.tagName === "PLASMO-CSUI") {
-        const toolbar = document.querySelector(
-          "[data-pixzlo-ui='floating-toolbar']"
-        )
-        if (toolbar) {
-          const rect = toolbar.getBoundingClientRect()
-          isWithinToolbarBounds =
-            e.clientX >= rect.left &&
-            e.clientX <= rect.right &&
-            e.clientY >= rect.top &&
-            e.clientY <= rect.bottom
-        }
-      }
+      // Coordinate-based check - most reliable for Shadow DOM
+      const isWithinToolbarBounds = isWithinToolbar(e.clientX, e.clientY)
 
       const isToolbarClick =
         isDirectToolbarElement ||
         isButtonElement ||
         isIconElement ||
-        toolbarAtPoint ||
         isWithinToolbarBounds ||
-        pathContainsToolbar
+        pathContainsToolbar ||
+        isToolbarClickByPath
 
       console.log("🔍 ElementHighlighter click detected:", {
         target: target.tagName,
@@ -282,9 +335,8 @@ const ElementHighlighter = ({
         isDirectToolbarElement: !!isDirectToolbarElement,
         isButtonElement: !!isButtonElement,
         isIconElement: !!isIconElement,
-        isPlasmoUIWithToolbar: !!isPlasmoUIWithToolbar,
-        toolbarAtPoint: !!toolbarAtPoint,
-        isWithinToolbarBounds: !!isWithinToolbarBounds,
+        isWithinToolbarBounds,
+        pathContainsToolbar,
         isToolbarClick: !!isToolbarClick,
         coordinates: { x: e.clientX, y: e.clientY }
       })
@@ -294,6 +346,7 @@ const ElementHighlighter = ({
         console.log("🎯 Allowing toolbar click to pass through")
         return
       }
+
 
       console.log("🚫 ElementHighlighter blocking click and selecting element")
       e.preventDefault()
@@ -337,7 +390,7 @@ const ElementHighlighter = ({
       const isDirectToolbarElement = target.closest(
         "[data-pixzlo-ui='floating-toolbar']"
       )
-      const isToolbarClick = !!isDirectToolbarElement
+      const isToolbarClick = isToolbarEvent(e) || !!isDirectToolbarElement
 
       if (isToolbarClick) {
         // Allow toolbar right-clicks to pass through
@@ -364,7 +417,10 @@ const ElementHighlighter = ({
   // Handle viewport changes (scroll, resize)
   const handleViewportChange = useCallback(() => {
     if (!isActive || !lastEvent.current) return
-    hitTestAndHighlight(lastEvent.current.clientX, lastEvent.current.clientY)
+    hitTestAndHighlight(
+      lastEvent.current.clientX,
+      lastEvent.current.clientY
+    )
   }, [isActive, hitTestAndHighlight])
 
   useEffect(() => {
@@ -459,8 +515,7 @@ const ElementHighlighter = ({
       {/* Instruction text */}
       <div className="pointer-events-none fixed left-1/2 top-4 -translate-x-1/2 rounded-full bg-white/90 px-4 py-2 shadow-lg backdrop-blur-sm">
         <p className="text-sm font-medium text-gray-700">
-          Hover over elements and click to select • Right-click or press Escape
-          to cancel
+          Hover and click to select • Right-click or press Escape to cancel
         </p>
       </div>
     </div>

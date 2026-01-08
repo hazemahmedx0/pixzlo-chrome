@@ -6,19 +6,80 @@ import {
   MonitorIcon,
   XIcon
 } from "@phosphor-icons/react"
-import { memo } from "react"
+import { memo, useEffect, useRef } from "react"
 
 const FloatingToolbar = memo(
   ({ onClose, onCapture, onModeChange, activeMode }: FloatingToolbarProps) => {
+    const toolbarRef = useRef<HTMLDivElement>(null)
+
+    /**
+     * Use native event listeners with capture: true to intercept events
+     * BEFORE the document-level listeners in ElementHighlighter/SelectionOverlay.
+     * This ensures toolbar clicks are not blocked by the selection overlays.
+     */
+    useEffect(() => {
+      const toolbar = toolbarRef.current
+      if (!toolbar) return
+
+      const stopPropagation = (e: Event): void => {
+        e.stopPropagation()
+        e.stopImmediatePropagation()
+      }
+
+      // Add listeners in capture phase to intercept before document-level handlers
+      toolbar.addEventListener("mousedown", stopPropagation, { capture: true })
+      toolbar.addEventListener("mouseup", stopPropagation, { capture: true })
+      toolbar.addEventListener("click", stopPropagation, { capture: true })
+      toolbar.addEventListener("pointerdown", stopPropagation, {
+        capture: true
+      })
+      toolbar.addEventListener("pointerup", stopPropagation, { capture: true })
+
+      return () => {
+        toolbar.removeEventListener("mousedown", stopPropagation, {
+          capture: true
+        })
+        toolbar.removeEventListener("mouseup", stopPropagation, {
+          capture: true
+        })
+        toolbar.removeEventListener("click", stopPropagation, { capture: true })
+        toolbar.removeEventListener("pointerdown", stopPropagation, {
+          capture: true
+        })
+        toolbar.removeEventListener("pointerup", stopPropagation, {
+          capture: true
+        })
+      }
+    }, [])
+
+    /**
+     * Stop all pointer events from propagating to prevent ElementHighlighter
+     * and SelectionOverlay from capturing them. This ensures toolbar buttons
+     * remain clickable during selection mode.
+     */
+    const stopEventPropagation = (e: React.SyntheticEvent): void => {
+      e.stopPropagation()
+      e.nativeEvent.stopImmediatePropagation()
+    }
+
     return (
       <div
         className="pointer-events-auto fixed bottom-6 left-1/2 z-[2147483648] -translate-x-1/2 rounded-full bg-white/90 shadow-lg ring-1 ring-black/5 backdrop-blur-sm"
         data-pixzlo-ui="floating-toolbar"
+        // Prevent selection overlays from capturing toolbar events
+        onMouseDown={stopEventPropagation}
+        onMouseUp={stopEventPropagation}
+        onPointerDown={stopEventPropagation}
+        onPointerUp={stopEventPropagation}
+        onClick={stopEventPropagation}
         style={{
           fontFamily:
-            'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif'
+            'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif',
+          pointerEvents: "auto"
         }}>
-        <div className="flex items-center gap-2 px-3 py-2">
+        <div
+          className="flex items-center gap-2 px-3 py-2"
+          style={{ pointerEvents: "auto" }}>
           <button
             type="button"
             className={`rounded-full p-2 transition-colors ${

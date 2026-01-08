@@ -178,9 +178,7 @@ const PixzloDialog = memo(
       }
 
       hasRefreshedForPopupRef.current = true
-      console.log(
-        "🎯 Figma popup opened - refreshing designs from backend..."
-      )
+      console.log("🎯 Figma popup opened - refreshing designs from backend...")
       void refreshDesigns()
     }, [isFigmaPopupOpen, designsLoading, refreshDesigns])
 
@@ -400,7 +398,9 @@ const PixzloDialog = memo(
               {/* Content Area with proper height constraints */}
               <div
                 className="flex-1 overflow-hidden"
-                style={{ height: "calc(100% - 58px)" }}>
+                style={{ height: "calc(100% - 58px)" }}
+                data-scrollable="true"
+                onWheel={(e) => e.stopPropagation()}>
                 <FigmaModalContent
                   isOpen={isFigmaPopupOpen}
                   onClose={() => {

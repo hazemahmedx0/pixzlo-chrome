@@ -20,7 +20,10 @@ interface InfoTabProps {
 const InfoTab = memo(({ metadata }: InfoTabProps): JSX.Element => {
   return (
     <div className="h-full overflow-hidden rounded-md border border-gray-100">
-      <div className="custom-scrollbar h-full overflow-y-auto">
+      <div
+        className="custom-scrollbar h-full overflow-y-auto"
+        data-scrollable="true"
+        onWheel={(e) => e.stopPropagation()}>
         <div className="space-y-4">
           <div>
             <div className="space-y-2 text-xs">
