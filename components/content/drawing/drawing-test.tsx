@@ -40,52 +40,36 @@ const DrawingTest = memo(() => {
   const testAddElement = useCallback(() => {
     const element = createTestElement()
     addElement(element)
-    console.log("✅ Added element:", element.id)
   }, [addElement, createTestElement])
 
   const testUpdateElement = useCallback(() => {
     if (elements.length === 0) {
-      console.log("⚠️ No elements to update")
       return
     }
     const element = elements[0]
     updateElement(element.id, {
       color: element.color === "#ef4444" ? "#3b82f6" : "#ef4444"
     })
-    console.log("✅ Updated element:", element.id)
   }, [elements, updateElement])
 
   const testRemoveElement = useCallback(() => {
     if (elements.length === 0) {
-      console.log("⚠️ No elements to remove")
       return
     }
     const element = elements[elements.length - 1]
     removeElement(element.id)
-    console.log("✅ Removed element:", element.id)
   }, [elements, removeElement])
 
   const testUndo = useCallback(() => {
-    const result = undo()
-    if (result) {
-      console.log("✅ Undo successful")
-    } else {
-      console.log("⚠️ Nothing to undo")
-    }
+    undo()
   }, [undo])
 
   const testRedo = useCallback(() => {
-    const result = redo()
-    if (result) {
-      console.log("✅ Redo successful")
-    } else {
-      console.log("⚠️ Nothing to redo")
-    }
+    redo()
   }, [redo])
 
   const testClear = useCallback(() => {
     resetHistory()
-    console.log("✅ Drawing cleared")
   }, [resetHistory])
 
   const historyInfo = getHistoryInfo()
@@ -145,7 +129,7 @@ const DrawingTest = memo(() => {
         <div>Can Undo: {historyInfo.canUndo ? "YES" : "NO"}</div>
         <div>Can Redo: {historyInfo.canRedo ? "YES" : "NO"}</div>
         <div className="mt-1 text-xs text-green-600">
-          ✅ React-based history
+          React-based history
         </div>
       </div>
     </div>

@@ -70,20 +70,8 @@ const DrawingCanvas = forwardRef<any, DrawingCanvasProps>(
     )
     const fontSize = useDrawingStore((state) => state.drawingState.fontSize)
 
-    // Debug logging to see if state changes
+    // Force Konva stage to redraw when elements change
     useEffect(() => {
-      console.log(
-        "🎨 Canvas: elements changed:",
-        renderElements.length,
-        "elements:",
-        renderElements.map((el) => el.id)
-      )
-      console.log("🔄 Render counter:", renderCounter)
-      console.log("🛠️ Current tool:", drawingTool, "| Color:", drawingColor)
-      if (getHistoryInfo) {
-        console.log("📚 Canvas: history info:", getHistoryInfo())
-      }
-      // Force Konva stage to redraw
       if (stageRef.current) {
         stageRef.current.batchDraw()
       }
@@ -146,14 +134,6 @@ const DrawingCanvas = forwardRef<any, DrawingCanvasProps>(
     // Render individual elements
     const renderElement = useCallback(
       (element: DrawingElement, index: number) => {
-        console.log(
-          "🔄 Rendering element:",
-          element.type,
-          element.id,
-          "at index",
-          index
-        )
-
         // Ensure each element has a unique key that changes when content changes
         const elementKey = `${element.type}-${element.id}-${index}`
 
@@ -171,7 +151,6 @@ const DrawingCanvas = forwardRef<any, DrawingCanvasProps>(
           default:
             // TypeScript exhaustiveness check - this should never happen
             const _exhaustiveCheck: never = element
-            console.log("Unknown element type:", _exhaustiveCheck)
             return null
         }
       },
@@ -192,8 +171,7 @@ const DrawingCanvas = forwardRef<any, DrawingCanvasProps>(
           backgroundColor: "transparent",
           pixelRatio: exportPixelRatio
         })
-      } catch (error) {
-        console.error("Error exporting drawing:", error)
+      } catch {
         return null
       }
     }, [])

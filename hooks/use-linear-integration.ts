@@ -58,8 +58,6 @@ export async function createLinearIssue(issueData: {
   options?: LinearIssueOptions
 }): Promise<{ success: boolean; issueUrl?: string; error?: string }> {
   try {
-    console.log("📡 Creating Linear issue via background script...")
-
     const response = await new Promise<{
       success: boolean
       data?: {
@@ -93,7 +91,6 @@ export async function createLinearIssue(issueData: {
     })
 
     if (!response.success) {
-      console.error("❌ Linear issue creation failed:", response.error)
       return { success: false, error: response.error }
     }
 
@@ -103,7 +100,6 @@ export async function createLinearIssue(issueData: {
       issueUrl
     }
   } catch (error) {
-    console.error("❌ Error creating Linear issue:", error)
     return {
       success: false,
       error: error instanceof Error ? error.message : "Unknown error"

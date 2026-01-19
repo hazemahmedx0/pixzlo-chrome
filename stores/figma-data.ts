@@ -133,7 +133,6 @@ export const useFigmaDataStore = create<FigmaDataState>((set, get) => ({
       Date.now() - state.metadataLastFetched < CACHE_DURATION &&
       state.metadata.website?.url === urlToUse
     ) {
-      console.log("📋 Using cached Figma metadata for:", urlToUse)
       return
     }
 
@@ -174,9 +173,7 @@ export const useFigmaDataStore = create<FigmaDataState>((set, get) => ({
         isConnected: Boolean(response.data.integration?.is_active),
         isLoadingStatus: false
       })
-      console.log("✅ Figma metadata fetched and cached for:", urlToUse)
     } catch (error) {
-      console.error("❌ Error fetching Figma metadata:", error)
       set({
         metadata: emptyMetadata,
         isLoadingMetadata: false,

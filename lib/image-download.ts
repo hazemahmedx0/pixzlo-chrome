@@ -112,18 +112,12 @@ export class ImageDownloader {
 
       // Draw the drawing overlay if provided (preferred method)
       if (drawingOverlay) {
-        console.log("Using Konva drawing overlay for annotations")
         const overlayImg = await this.loadImage(drawingOverlay)
 
         // When using composite, the overlay is already scaled, so draw 1:1
         ctx.drawImage(overlayImg, 0, 0, canvas.width, canvas.height)
       } else if (drawings && drawings.length > 0) {
         // Fallback: manually draw annotations (legacy method)
-        console.log(
-          "Drawing annotations manually:",
-          drawings.length,
-          "elements"
-        )
         if (useComposite) {
           // For composite images, drawings are 1:1 with canvas coordinates
           this.drawAnnotations(
@@ -166,9 +160,8 @@ export class ImageDownloader {
         document.body.removeChild(link)
         URL.revokeObjectURL(url)
       }, "image/png")
-    } catch (error) {
-      console.error("Failed to download image:", error)
-      throw error
+    } catch {
+      throw new Error("Failed to download image")
     }
   }
 
@@ -219,7 +212,8 @@ export class ImageDownloader {
           this.drawRectangle(ctx, element, imageX, imageY, scaleX, scaleY)
           break
         default:
-          console.warn("Unknown drawing element type:", element.type)
+          // Unknown drawing element type
+          break
       }
 
       ctx.restore()

@@ -96,10 +96,6 @@ const FigmaUrlInput = memo(
               )}
               <Button
                 onClick={() => {
-                  console.log("🔘 Link Figma File button clicked")
-                  console.log("🔘 Current figmaUrl:", figmaUrl)
-                  console.log("🔘 isProcessing:", isProcessing)
-                  console.log("🔘 onSubmit function:", onSubmit)
                   onSubmit()
                 }}
                 className={showCancel || showBack ? "flex-1" : "w-full"}

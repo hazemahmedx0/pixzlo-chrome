@@ -205,33 +205,22 @@ const FigmaDesignManager = memo(
     // Initialize state from initialContext when changing design
     useEffect(() => {
       if (initialContext && isOpen) {
-        console.log("🔄 Initializing from cached context:", initialContext)
         setFigmaUrl(initialContext.figmaUrl)
         setViewMode("select-element")
         setFrameData(initialContext.frameData)
 
         // Use cached frame image URL - no API calls when changing design
         if (initialContext.frameImageUrl) {
-          console.log("🖼️ Using cached frame image URL - no API call needed")
           setFrameImageUrl(initialContext.frameImageUrl)
-        } else {
-          console.warn(
-            "⚠️ No cached frame image URL available - this should not happen when changing design"
-          )
         }
 
         // Use cached frame elements if available
         if (initialContext.frameElements) {
-          console.log("🔧 Using cached frame elements")
           setFrameElements(initialContext.frameElements)
         }
 
         // Set selected element if available
         if (initialContext.selectedElementId) {
-          console.log(
-            "🎯 Restoring selected element:",
-            initialContext.selectedElementId
-          )
           // Find and set the selected element
           const selectedElement = initialContext.frameElements?.find(
             (element) => element.id === initialContext.selectedElementId
@@ -247,17 +236,12 @@ const FigmaDesignManager = memo(
     useEffect(() => {
       // Prevent API calls when in change design mode
       if (isChangeDesignMode) {
-        console.log(
-          "🚫 Skipping frame image fetch - in change design mode with cached data"
-        )
         return
       }
 
       if (!figmaFile || viewMode !== "select-frame") return
 
       const fetchFrameImages = async () => {
-        console.log("🎯 Fetching frame images...")
-
         const images: Record<string, string> = {}
         const frames: FigmaNode[] = []
 
@@ -282,16 +266,12 @@ const FigmaDesignManager = memo(
             if (response.success && response.data?.imageUrl) {
               images[frame.id] = response.data.imageUrl
             }
-          } catch (error) {
-            console.error(
-              `Failed to fetch image for frame ${frame.name}:`,
-              error
-            )
+          } catch {
+            // Failed to fetch image for frame
           }
         }
 
         setFrameImages(images)
-        console.log("✅ Frame images loaded:", Object.keys(images).length)
       }
 
       fetchFrameImages()
@@ -299,9 +279,6 @@ const FigmaDesignManager = memo(
 
     // Event handlers
     const handleCancel = (): void => {
-      console.log(
-        "🔍 DEBUG: FigmaDesignManager handleCancel called - prefer using existing designs when available"
-      )
       if (orderedExistingDesigns.length > 0 && previousViewMode === "select-element") {
         // Going back to the previous frame - restore state without reloading
         setViewMode("select-element")
@@ -320,17 +297,11 @@ const FigmaDesignManager = memo(
       setError(null)
       // Clear figmaUrl so the input starts empty for adding a new frame
       setFigmaUrl("")
-      // Don't clear frame data - we need it to restore the view if user cancels
-      // setSelectedDesignId(null)
-      // setFrameData(null)
-      // setFrameElements([])
-      // setFrameImageUrl("")
     }
 
     const handleBackToPreviousFrame = (): void => {
       if (previousViewMode) {
         // Restore previous view without reloading
-        console.log("🔙 Going back to previous view mode:", previousViewMode)
         setViewMode(previousViewMode)
         setPreviousViewMode(null)
         setError(null)
@@ -354,8 +325,6 @@ const FigmaDesignManager = memo(
         frameId: design.figma_frame_id,
         frameData: undefined // Frame data not available for existing designs
       }
-
-      console.log("✅ Existing frame selected with context:", contextData)
 
       onDesignSelected(
         {
@@ -384,47 +353,26 @@ const FigmaDesignManager = memo(
           previousViewMode === null &&
           isSameAsCachedUrl
         ) {
-          console.log(
-            "🚫 Skipping API call - in change design mode with cached data for same URL"
-          )
           return
         }
 
         if (isProcessing) {
-          console.log(
-            "🚫 Skipping Figma URL submission - request already in progress"
-          )
           return
         }
 
-        console.log(
-          "🎯 handleFigmaUrlSubmit called with overrideUrl:",
-          overrideUrl
-        )
-        console.log("🎯 Current figmaUrl state:", figmaUrlRef.current)
-
         const urlCandidate = overrideUrl?.trim() || figmaUrlRef.current.trim()
-        console.log("🎯 URL candidate:", urlCandidate)
 
         if (!urlCandidate) {
-          console.log("❌ No URL provided")
           setError("Please enter a Figma URL")
           return
         }
 
         if (!figmaService.isValidFigmaUrl(urlCandidate)) {
-          console.log("❌ Invalid Figma URL:", urlCandidate)
           setError("Please enter a valid Figma URL")
           return
         }
 
-        console.log("✅ URL validation passed, proceeding with processing...")
-
         if (figmaUrlRequestRef.current === urlCandidate) {
-          console.log(
-            "⏭️ Skipping duplicate Figma frame request for:",
-            urlCandidate
-          )
           return
         }
 
@@ -445,8 +393,6 @@ const FigmaDesignManager = memo(
           const hasNodeId = urlCandidate.includes("node-id=")
 
           if (hasNodeId) {
-            console.log("🎯 URL has node-id, rendering frame directly...")
-
             // Use background script to render the frame with elements
             const response = await new Promise<{
               success: boolean
@@ -469,28 +415,19 @@ const FigmaDesignManager = memo(
                   },
                   (response) => {
                     if (chrome.runtime.lastError) {
-                      console.error(
-                        "Chrome runtime error:",
-                        chrome.runtime.lastError
-                      )
                       resolve({
                         success: false,
                         error:
                           chrome.runtime.lastError.message || "Extension error"
                       })
                     } else {
-                      console.log(
-                        "✅ Received response from background:",
-                        response
-                      )
                       resolve(
                         response || { success: false, error: "No response" }
                       )
                     }
                   }
                 )
-              } catch (error) {
-                console.error("❌ Error sending message to background:", error)
+              } catch {
                 resolve({
                   success: false,
                   error: "Failed to communicate with background script"
@@ -503,22 +440,9 @@ const FigmaDesignManager = memo(
               return
             }
 
-            console.log(
-              "✅ Frame rendered successfully:",
-              response.data.fileName
-            )
-
             try {
-              // Store frame data and move to element selection
-              console.log(
-                "🔄 Setting frame data and switching to element selection..."
-              )
-
               // Check if component is still mounted and dialog is still open
               if (!isOpen) {
-                console.warn(
-                  "⚠️ Dialog closed during frame processing, aborting state updates"
-                )
                 return
               }
 
@@ -529,9 +453,7 @@ const FigmaDesignManager = memo(
               setFrameElements(response.data.elements)
               setFrameImageUrl(response.data.imageUrl)
               setViewMode("select-element")
-              console.log("✅ Successfully switched to element selection view")
-            } catch (error) {
-              console.error("❌ Error setting frame data:", error)
+            } catch {
               setError("Failed to process frame data")
               return
             }
@@ -543,8 +465,6 @@ const FigmaDesignManager = memo(
               return
             }
 
-            console.log("🎯 Fetching Figma file directly via API...")
-
             // Fetch Figma file using Figma API
             const response = await figmaService.getFigmaFile(parsed.fileId)
 
@@ -553,30 +473,22 @@ const FigmaDesignManager = memo(
               return
             }
 
-            console.log(
-              "✅ Figma file fetched successfully:",
-              response.data.name
-            )
-
             // Store the file and move to frame selection
             setFigmaFile(response.data)
             setViewMode("select-frame")
           }
         } catch (err) {
-          console.error("❌ Failed to fetch Figma file:", err)
           setError(
             err instanceof Error ? err.message : "Failed to fetch Figma file"
           )
-          // Don't close the dialog on error - let user try again
-          console.log("🔍 Error occurred but keeping dialog open for retry")
       } finally {
         setIsProcessing(false)
         figmaUrlRequestRef.current = null
         // Clear figma flow active flag
         try {
           usePixzloDialogStore.getState().setIsFigmaFlowActive(false)
-        } catch (error) {
-          console.warn("Failed to reset Figma flow flag", error)
+        } catch {
+          // Failed to reset Figma flow flag
         }
       }
     },
@@ -608,8 +520,6 @@ const FigmaDesignManager = memo(
       setError(null)
 
       try {
-        console.log("🎯 Creating design link with selected frame...")
-
         const frameUrl = figmaUrl.includes("node-id=")
           ? figmaUrl
           : `${figmaUrl}${figmaUrl.includes("?") ? "&" : "?"}node-id=${encodeURIComponent(selectedFrame.id.replace(/:/g, "-"))}`
@@ -622,8 +532,6 @@ const FigmaDesignManager = memo(
         })
 
         if (response.success) {
-          console.log("✅ Design link created successfully")
-
           // IMPORTANT: immediately refresh metadata/design-links for this page so
           // the next "Add design reference" (without a full page refresh) sees
           // the newly linked frame.
@@ -636,8 +544,6 @@ const FigmaDesignManager = memo(
             frameId: selectedFrame.id,
             frameData: selectedFrame
           }
-
-          console.log("✅ New frame selected with context:", contextData)
 
           setSelectedDesignId(null)
           onDesignSelected(
@@ -659,7 +565,6 @@ const FigmaDesignManager = memo(
           setError(response.error || "Failed to create design link")
         }
       } catch (err) {
-        console.error("❌ Failed to create design link:", err)
         setError(
           err instanceof Error ? err.message : "Failed to create design link"
         )
@@ -707,10 +612,6 @@ const FigmaDesignManager = memo(
         return
       }
 
-      console.log(
-        "🎯 Auto-loading stored Figma design in modal:",
-        firstDesign.frame_url
-      )
       setHasAutoLoadedDesign(true)
       setIsAutoLoading(true)
       autoLoadTriggeredRef.current = true
@@ -775,15 +676,9 @@ const FigmaDesignManager = memo(
       frameImage: HTMLImageElement | null
     ): Promise<void> => {
       if (!frameData) {
-        console.error("❌ handleElementSelect error: frameData is not set.")
         setError("Critical error: Frame data is missing.")
         return
       }
-
-      console.log("🎯 Element selected for screenshot capture:", {
-        element: element,
-        frameData: frameData
-      })
 
       // Store the selected element for context caching
       setSelectedElement(element)
@@ -792,10 +687,6 @@ const FigmaDesignManager = memo(
       setError(null)
 
       try {
-        console.log(
-          "🎯 Using direct image crop from Figma frame (no screen capture)..."
-        )
-
         // Calculate element position in the displayed frame image
         if (!frameImage) {
           throw new Error("Frame image DOM element was not provided.")
@@ -807,8 +698,6 @@ const FigmaDesignManager = memo(
             "Frame image URL is not available. Please try refreshing the frame."
           )
         }
-
-        console.log("🔍 Frame image URL available:", frameImageUrl.substring(0, 50) + "...")
 
         // Get the actual displayed dimensions of the frame image
         const displayedWidth = frameImage.offsetWidth
@@ -854,22 +743,8 @@ const FigmaDesignManager = memo(
           displayedHeight - clampedY
         )
 
-        console.log("📏 Calculated capture area (relative to frame image):", {
-          displayedDimensions: { width: displayedWidth, height: displayedHeight },
-          scale: { x: scaleX, y: scaleY },
-          elementPosition: { x: elementRelativeX, y: elementRelativeY },
-          elementSize: { width: elementWidth, height: elementHeight },
-          captureArea: {
-            x: clampedX,
-            y: clampedY,
-            width: clampedWidth,
-            height: clampedHeight
-          }
-        })
-
         // Crop directly from the frame image (already loaded from Figma)
         // This avoids viewport/scroll issues entirely
-        console.log("🔍 Starting crop from source image...")
         const croppedImageUrl = await cropImageFromSource(
           frameImageUrl, // Use the source frame image URL
           {
@@ -881,23 +756,16 @@ const FigmaDesignManager = memo(
           displayedWidth,
           displayedHeight
         )
-        console.log("✅ Element cropped from frame image")
 
         // Convert to 16:9 aspect ratio with gray background
         const processedImageUrl =
           await convertTo16x9WithPadding(croppedImageUrl)
-        console.log("🎨 16:9 conversion complete.")
 
         const designData = {
           imageUrl: processedImageUrl,
           designName: element.name || "Figma Element",
           figmaUrl: figmaUrl
         }
-
-        console.log(
-          "🎯 Calling onDesignSelected with processed image data:",
-          designData
-        )
 
         // Extract properties from selected element for comparison using enhanced extractor
         const getAllElementsRecursive = (node: any): any[] => {
@@ -916,14 +784,6 @@ const FigmaDesignManager = memo(
             element,
             allFrameElements
           )
-        console.log("🎨 Enhanced Figma properties:", figmaProperties)
-
-        // Also keep legacy extraction for backward compatibility debugging
-        const legacyProperties = extractFigmaProperties(element)
-        console.log(
-          "🎨 Legacy Figma properties (for comparison):",
-          legacyProperties
-        )
 
         // Return the processed element as a design selection
         const contextData: FigmaContextData = {
@@ -939,12 +799,8 @@ const FigmaDesignManager = memo(
 
         onDesignSelected(designData, contextData)
 
-        console.log(
-          "🔍 DEBUG: Calling onClose after element selection (should only close Figma popup)"
-        )
         onClose()
       } catch (err) {
-        console.error("❌ Failed to capture element:", err)
         setError(
           err instanceof Error ? err.message : "Failed to capture element"
         )
@@ -1026,8 +882,8 @@ const FigmaDesignManager = memo(
                     if (response.success && response.data?.imageUrl) {
                       setFrameImageUrl(response.data.imageUrl)
                     }
-                  } catch (error) {
-                    console.error("Failed to refresh frame:", error)
+                  } catch {
+                    // Failed to refresh frame
                   } finally {
                     setIsProcessing(false)
                   }

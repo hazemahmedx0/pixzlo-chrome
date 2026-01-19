@@ -131,9 +131,6 @@ const SelectionOverlay = ({
     (e: MouseEvent) => {
       if (!isActive) return
       if (ignoreToolbarClick.current) {
-        console.log(
-          "🎯 SelectionOverlay: Ignoring mousedown due to toolbar interaction (global handshake)"
-        )
         return
       }
 
@@ -158,22 +155,8 @@ const SelectionOverlay = ({
         isIconElement ||
         isWithinToolbarBounds
 
-      console.log("🖱️ SelectionOverlay: Mouse down on:", {
-        target: target.tagName,
-        className: target.className,
-        isDirectToolbarElement: !!isDirectToolbarElement,
-        isButtonElement: !!isButtonElement,
-        isIconElement: !!isIconElement,
-        isWithinToolbarBounds,
-        isToolbarClick: !!isToolbarClick,
-        coordinates: { x: e.clientX, y: e.clientY }
-      })
-
       if (isToolbarClick) {
         // Allow toolbar clicks to pass through (don't prevent default)
-        console.log(
-          "🎯 SelectionOverlay: Allowing toolbar click to pass through"
-        )
         return
       }
 
@@ -181,7 +164,6 @@ const SelectionOverlay = ({
       e.stopPropagation()
 
       const position = getMousePosition(e)
-      console.log("🖱️ SelectionOverlay: Starting selection at:", position)
       setSelection({
         startPosition: position,
         endPosition: position,
@@ -207,22 +189,11 @@ const SelectionOverlay = ({
 
   const handleMouseUp = useCallback(
     (e: MouseEvent) => {
-      console.log("🖱️ SelectionOverlay: Mouse up event:", {
-        isActive,
-        isSelecting: selection.isSelecting,
-        coordinates: { x: e.clientX, y: e.clientY }
-      })
       if (ignoreToolbarClick.current) {
-        console.log(
-          "🎯 SelectionOverlay: Ignoring mouseup due to toolbar interaction (global handshake)"
-        )
         return
       }
 
       if (!isActive || !selection.isSelecting) {
-        console.log(
-          "❌ SelectionOverlay: Mouse up ignored - not active or not selecting"
-        )
         return
       }
 
@@ -244,25 +215,9 @@ const SelectionOverlay = ({
       const width = Math.abs(finalEndPosition.x - finalStartPosition.x)
       const height = Math.abs(finalEndPosition.y - finalStartPosition.y)
 
-      console.log("🔍 SelectionOverlay: Selection completed:", {
-        width,
-        height,
-        startX,
-        startY,
-        meetsMinimumSize: width > 10 && height > 10
-      })
-
       if (width > 10 && height > 10) {
         // Minimum selection size
-        console.log(
-          "✅ SelectionOverlay: Calling onSelectionComplete with area:",
-          { startX, startY, width, height }
-        )
         onSelectionComplete({ startX, startY, width, height })
-      } else {
-        console.log(
-          "❌ SelectionOverlay: Selection too small, not triggering capture"
-        )
       }
 
       setSelection({

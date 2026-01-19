@@ -38,7 +38,6 @@ export class ElementSelectionService {
    */
   setContainerElement(container: HTMLElement | null): void {
     this.containerElement = container
-    console.log("📦 Container element set:", container ? container.tagName : "null")
   }
 
   /**
@@ -61,21 +60,18 @@ export class ElementSelectionService {
     while (current && current !== document.body) {
       // Skip the extension dialog itself
       if (current.dataset?.pixzloUi === 'dialog') {
-        console.log("🚫 Reached extension dialog, stopping container search")
         return null
       }
 
       // Check if current element matches any container selector
       for (const selector of containerSelectors) {
         if (current.matches?.(selector)) {
-          console.log("🎯 Detected frame container:", selector, current)
           return current
         }
       }
 
       // Check for elements with specific data attributes
       if (current.dataset?.framePreview || current.dataset?.pixzloFrame || current.dataset?.frameId) {
-        console.log("🎯 Detected frame container via data attribute:", current)
         return current
       }
 
@@ -83,14 +79,12 @@ export class ElementSelectionService {
       if (current.classList.contains('image-preview') ||
           current.classList.contains('design-reference') ||
           current.classList.contains('screenshot-preview')) {
-        console.log("🎯 Detected frame container via class name:", current.className)
         return current
       }
 
       current = current.parentElement
     }
 
-    console.log("⚠️ No frame container detected, using default window viewport")
     return null
   }
 
@@ -130,10 +124,6 @@ export class ElementSelectionService {
     // If we're in container mode (frame preview), don't clip at all
     // We want the full element + 40px padding regardless of scroll position
     if (this.containerElement) {
-      console.log("📦 Container mode: Using full bounds without viewport clipping", {
-        bounds,
-        container: this.containerElement.tagName
-      })
       return bounds
     }
 
@@ -152,17 +142,6 @@ export class ElementSelectionService {
       startY: intersection.startY,
       width: Math.max(0, intersection.endX - intersection.startX),
       height: Math.max(0, intersection.endY - intersection.startY)
-    }
-
-    if (
-      adjustedBounds.width !== bounds.width ||
-      adjustedBounds.height !== bounds.height
-    ) {
-      console.log("✂️ Element bounds clipped to viewport:", {
-        original: bounds,
-        adjusted: adjustedBounds,
-        viewport
-      })
     }
 
     return adjustedBounds
@@ -239,16 +218,11 @@ export class ElementSelectionService {
     options: CaptureOptions = { type: "element" },
     providedRect?: DOMRect
   ): Promise<Screenshot[]> {
-    console.log(
-      "🚀 ElementSelectionService - capturing element with 16:9 aspect ratio"
-    )
-
     // Auto-detect frame container if not explicitly set
     const detectedContainer = this.detectFrameContainer(element)
     const previousContainer = this.containerElement
 
     if (detectedContainer && !this.containerElement) {
-      console.log("📦 Auto-detected frame container, using for viewport calculations")
       this.setContainerElement(detectedContainer)
     }
 
@@ -265,24 +239,10 @@ export class ElementSelectionService {
         )
       }
 
-      console.log("📏 Base area (element + 40px margin):", baseArea)
-      console.log("📦 Element rect:", rect)
-      console.log(
-        "🎯 Using provided rect:",
-        !!providedRect,
-        providedRect ? "from selection time" : "recalculated"
-      )
-
       // Check if element contains Konva canvas
       const konvaCanvases = this.findKonvaCanvases(element)
-      console.log("🔍 Checking for Konva canvases:", {
-        elementTag: element.tagName,
-        elementClasses: Array.from(element.classList),
-        konvaCanvasesFound: konvaCanvases.length
-      })
 
       if (konvaCanvases.length > 0) {
-        console.log("🎨 Konva canvas detected, using special capture method...")
         return await this.captureKonvaElement(
           element,
           rect,
@@ -291,12 +251,10 @@ export class ElementSelectionService {
         )
       }
 
-      console.log("📸 No Konva canvas found, using regular capture method...")
       return await this.captureRegularElement(element, rect, baseArea, options)
     } finally {
       // Restore previous container setting if we auto-detected one
       if (detectedContainer && previousContainer === null) {
-        console.log("🔄 Restoring previous container setting")
         this.setContainerElement(previousContainer)
       }
     }
@@ -312,19 +270,16 @@ export class ElementSelectionService {
     options: CaptureOptions
   ): Promise<Screenshot[]> {
     // Hide UI elements during capture
-    console.log("🙈 Hiding UI elements...")
     this.captureService.hideUIElements()
 
     try {
       // Capture the base area (element + margin)
-      console.log("📸 Capturing base area...")
       const baseScreenshot = await this.captureService.captureArea(baseArea, {
         ...options,
         type: "element"
       })
 
       // Convert to 16:9 with smart padding
-      console.log("🎨 Converting to 16:9 with smart padding...")
       const screenshot16x9 =
         await this.captureService.convertTo16x9WithSmartPadding(
           baseScreenshot.dataUrl,
@@ -339,7 +294,6 @@ export class ElementSelectionService {
       }
 
       // Create highlighted version
-      console.log("🎯 Adding highlight to 16:9 image...")
       const highlightedDataUrl =
         await this.captureService.addHighlightTo16x9Smart(
           screenshot16x9,
@@ -354,11 +308,9 @@ export class ElementSelectionService {
         metadata: baseScreenshot.metadata
       }
 
-      console.log("✅ SUCCESS - Element captured with proper 16:9 ratio")
       return [cleanScreenshot, highlightedScreenshot]
     } finally {
       // Always restore UI elements
-      console.log("👁️ Restoring UI elements...")
       this.captureService.showUIElements()
     }
   }
@@ -372,16 +324,8 @@ export class ElementSelectionService {
     konvaCanvases: HTMLCanvasElement[],
     options: CaptureOptions
   ): Promise<Screenshot[]> {
-    console.log(
-      "🎨 Capturing Konva canvas - pure content, transparent background..."
-    )
-
     try {
       const canvas = konvaCanvases[0]
-      console.log("🎯 Found Konva canvas:", {
-        canvasSize: { width: canvas.width, height: canvas.height },
-        canvasRect: canvas.getBoundingClientRect()
-      })
 
       // Hide all extension UI for clean capture
       this.captureService.hideUIElements()
@@ -397,22 +341,19 @@ export class ElementSelectionService {
       let konvaDataUrl: string | null = null
 
       if (stage) {
-        console.log("🎯 Found Konva stage, extracting pure canvas content...")
         try {
           konvaDataUrl = stage.toDataURL({
             mimeType: "image/png",
             quality: 1.0,
             pixelRatio: window.devicePixelRatio || 1
           })
-          console.log("✅ Successfully extracted Konva stage content")
-        } catch (stageError) {
-          console.warn("⚠️ Failed to extract stage content:", stageError)
+        } catch {
+          // Failed to extract stage content
         }
       }
 
       // Fallback: regular screen capture
       if (!konvaDataUrl) {
-        console.log("📸 Falling back to screen capture...")
         const bounds = this.calculateElementBounds(element, 40)
         const fallbackScreenshot = await this.captureService.captureArea(
           bounds,
@@ -470,7 +411,6 @@ export class ElementSelectionService {
         metadata: cleanScreenshot.metadata
       }
 
-      console.log("✅ SUCCESS - Konva element captured")
       return [cleanScreenshot, highlightedScreenshot]
     } finally {
       this.captureService.showUIElements()

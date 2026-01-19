@@ -33,7 +33,6 @@ export class CaptureService {
             if (chrome.runtime.lastError) {
               const error = chrome.runtime.lastError.message
               if (error.includes("Extension context invalidated")) {
-                console.log("Extension context invalidated during capture")
                 reject(new Error("Extension context invalidated"))
               } else {
                 reject(new Error(error))
@@ -140,23 +139,6 @@ export class CaptureService {
           const imageWidth = Math.round(drawWidth * dpr)
           const imageHeight = Math.round(drawHeight * dpr)
 
-          console.log("📐 Converting to 16:9:", {
-            original: {
-              width: originalArea.width,
-              height: originalArea.height
-            },
-            final: { width: canvasWidth, height: canvasHeight },
-            canvas: { width: canvas.width, height: canvas.height },
-            imagePosition: {
-              x: imageX,
-              y: imageY,
-              w: imageWidth,
-              h: imageHeight
-            },
-            currentRatio,
-            aspectRatio
-          })
-
           // Fill entire canvas with the standard padding color first
           ctx.fillStyle = PADDING_BACKGROUND_COLOR
           ctx.fillRect(0, 0, canvas.width, canvas.height)
@@ -225,19 +207,6 @@ export class CaptureService {
         const highlightWidth = elementRect.width * dpr
         const highlightHeight = elementRect.height * dpr
 
-        console.log("🎯 Smart highlight positioning:", {
-          contentOffset: { x: contentOffsetX, y: contentOffsetY },
-          elementOffset: { x: elementOffsetX, y: elementOffsetY },
-          finalPosition: {
-            x: highlightX,
-            y: highlightY,
-            w: highlightWidth,
-            h: highlightHeight
-          },
-          currentRatio,
-          aspectRatio
-        })
-
         // Draw highlight background
         ctx.fillStyle = "rgba(59, 130, 246, 0.2)"
         ctx.fillRect(highlightX, highlightY, highlightWidth, highlightHeight)
@@ -285,13 +254,6 @@ export class CaptureService {
         const highlightWidth = elementRect.width * dpr
         const highlightHeight = elementRect.height * dpr
 
-        console.log("🎯 Drawing highlight at:", {
-          highlightX,
-          highlightY,
-          highlightWidth,
-          highlightHeight
-        })
-
         // Draw highlight background
         ctx.fillStyle = "rgba(59, 130, 246, 0.2)"
         ctx.fillRect(highlightX, highlightY, highlightWidth, highlightHeight)
@@ -336,13 +298,6 @@ export class CaptureService {
           // The destination canvas will have the size of the cropped area.
           canvas.width = area.width * dpr
           canvas.height = area.height * dpr
-
-          console.log("📸 Cropping image:", {
-            source: { sx, sy, sWidth, sHeight },
-            destination: { width: canvas.width, height: canvas.height },
-            scroll: { scrollX: window.scrollX, scrollY: window.scrollY },
-            area
-          })
 
           // Draw the cropped portion of the image from the viewport screenshot
           ctx.drawImage(
@@ -429,15 +384,11 @@ export class CaptureService {
   }[] = []
 
   hideUIElements(): void {
-    console.log("🚀 NUCLEAR APPROACH - DETACHING PLASMO UI FROM DOM")
-
     // STEP 1: Find and DETACH Plasmo elements completely from DOM
     const plasmoElements = document.querySelectorAll("plasmo-csui")
-    console.log(`🎯 Found ${plasmoElements.length} plasmo-csui elements`)
 
     plasmoElements.forEach((element) => {
       const htmlElement = element as HTMLElement
-      console.log("🔥 DETACHING plasmo-csui element:", htmlElement)
 
       // Store reference for restoration
       this.detachedElements.push({
@@ -464,7 +415,6 @@ export class CaptureService {
       'div[style*="position: fixed"][style*="z-index"]'
     ]
 
-    let hiddenCount = 0
     selectors.forEach((selector) => {
       try {
         const elements = document.querySelectorAll(selector)
@@ -478,11 +428,10 @@ export class CaptureService {
             htmlElement.style.visibility = "hidden !important"
             htmlElement.style.display = "none !important"
             htmlElement.style.opacity = "0 !important"
-            hiddenCount++
           }
         })
-      } catch (error) {
-        console.warn(`Invalid selector: ${selector}`)
+      } catch {
+        // Invalid selector
       }
     })
 
@@ -505,22 +454,13 @@ export class CaptureService {
           htmlElement.dataset.originalDisplay = htmlElement.style.display || ""
           htmlElement.style.visibility = "hidden !important"
           htmlElement.style.display = "none !important"
-          hiddenCount++
         }
       }
     })
-
-    console.log(`🚀 DETACHED ${this.detachedElements.length} plasmo elements`)
-    console.log(`🙈 HIDDEN ${hiddenCount} additional UI elements`)
   }
 
   showUIElements(): void {
-    console.log("🔄 RESTORING UI ELEMENTS...")
-
     // STEP 1: REATTACH detached Plasmo elements to DOM
-    console.log(
-      `🔄 Reattaching ${this.detachedElements.length} detached elements`
-    )
     this.detachedElements.forEach(({ element, parent, nextSibling }) => {
       try {
         if (nextSibling && parent.contains(nextSibling)) {
@@ -528,9 +468,8 @@ export class CaptureService {
         } else {
           parent.appendChild(element)
         }
-        console.log("✅ Reattached plasmo-csui element")
-      } catch (error) {
-        console.error("❌ Failed to reattach element:", error)
+      } catch {
+        // Failed to reattach element
       }
     })
 
@@ -541,7 +480,6 @@ export class CaptureService {
     const elementsWithStoredVisibility = document.querySelectorAll(
       "[data-original-visibility]"
     )
-    let restoredCount = 0
 
     elementsWithStoredVisibility.forEach((element) => {
       const htmlElement = element as HTMLElement
@@ -557,11 +495,7 @@ export class CaptureService {
       // Clean up data attributes
       delete htmlElement.dataset.originalVisibility
       delete htmlElement.dataset.originalDisplay
-
-      restoredCount++
     })
-
-    console.log(`🔄 Successfully restored ${restoredCount} UI elements`)
   }
 
   /**
@@ -595,7 +529,6 @@ export class CaptureService {
           highlightCanvas.height - 2
         )
 
-        console.log("🎯 Added simple border to transparent Konva canvas")
         resolve(highlightCanvas.toDataURL("image/png"))
       }
       konvaImg.src = konvaDataUrl
@@ -633,13 +566,6 @@ export class CaptureService {
               .backgroundColor
           : "transparent"
 
-        console.log("🎨 Background color debug:", {
-          bodyBg,
-          htmlBg,
-          containerBg,
-          konvaContainerFound: !!konvaContainer
-        })
-
         // Try to get the most appropriate background color
         let backgroundColorToUse = "white" // Safe default
 
@@ -648,16 +574,10 @@ export class CaptureService {
           containerBg !== "rgba(0, 0, 0, 0)"
         ) {
           backgroundColorToUse = containerBg
-          console.log(
-            "🎯 Using Konva container background:",
-            backgroundColorToUse
-          )
         } else if (bodyBg !== "transparent" && bodyBg !== "rgba(0, 0, 0, 0)") {
           backgroundColorToUse = bodyBg
-          console.log("🎯 Using body background:", backgroundColorToUse)
         } else if (htmlBg !== "transparent" && htmlBg !== "rgba(0, 0, 0, 0)") {
           backgroundColorToUse = htmlBg
-          console.log("🎯 Using html background:", backgroundColorToUse)
         }
 
         // 1. Fill canvas with detected background color
@@ -672,12 +592,8 @@ export class CaptureService {
           ctx.strokeStyle = "rgba(59, 130, 246, 1.0)"
           ctx.lineWidth = 3
           ctx.strokeRect(1, 1, finalCanvas.width - 2, finalCanvas.height - 2)
-          console.log("🎯 Added border highlight")
         }
 
-        console.log(
-          `✅ Final Konva composite: ${finalCanvas.width}x${finalCanvas.height} with background: ${backgroundColorToUse}`
-        )
         resolve(finalCanvas.toDataURL("image/png"))
       }
       konvaImg.src = konvaDataUrl
@@ -715,7 +631,6 @@ export class CaptureService {
 
         // NO overlay - preserve original content exactly
 
-        console.log("🎯 Added border-only highlight to Konva canvas")
         resolve(highlightCanvas.toDataURL("image/png"))
       }
       konvaImg.src = konvaDataUrl

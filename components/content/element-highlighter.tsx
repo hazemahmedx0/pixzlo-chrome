@@ -289,15 +289,11 @@ const ElementHighlighter = ({
     async (e: MouseEvent) => {
       if (!isActive) return
       if (ignoreToolbarClick.current) {
-        console.log(
-          "🎯 Allowing click due to toolbar interaction (global handshake)"
-        )
         return
       }
 
       // Check if the click is on the floating toolbar
       const target = e.target as HTMLElement
-      const overlayElement = overlayRef.current
 
       const isToolbarClickByPath = isToolbarEvent(e)
 
@@ -329,26 +325,11 @@ const ElementHighlighter = ({
         pathContainsToolbar ||
         isToolbarClickByPath
 
-      console.log("🔍 ElementHighlighter click detected:", {
-        target: target.tagName,
-        className: target.className,
-        isDirectToolbarElement: !!isDirectToolbarElement,
-        isButtonElement: !!isButtonElement,
-        isIconElement: !!isIconElement,
-        isWithinToolbarBounds,
-        pathContainsToolbar,
-        isToolbarClick: !!isToolbarClick,
-        coordinates: { x: e.clientX, y: e.clientY }
-      })
-
       if (isToolbarClick) {
         // Allow toolbar clicks to pass through (don't prevent default)
-        console.log("🎯 Allowing toolbar click to pass through")
         return
       }
 
-
-      console.log("🚫 ElementHighlighter blocking click and selecting element")
       e.preventDefault()
       e.stopPropagation()
 

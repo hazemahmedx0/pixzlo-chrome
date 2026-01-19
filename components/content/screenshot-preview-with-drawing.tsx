@@ -59,18 +59,6 @@ const ScreenshotPreviewWithDrawing = memo(
       (state) => state.setIsFigmaPopupOpen
     )
 
-    console.log("🖼️ ScreenshotPreviewWithDrawing props:", {
-      hasHighlightedVersion,
-      showHighlighted,
-      figmaDesign: figmaDesign
-        ? {
-            designName: figmaDesign.designName,
-            hasImageUrl: !!figmaDesign.imageUrl,
-            figmaUrl: figmaDesign.figmaUrl
-          }
-        : null
-    })
-
     const [isDrawingMode, setIsDrawingMode] = useState(false)
     const [drawingImageUrl, setDrawingImageUrl] = useState<string | null>(null)
     const [activeTool, setActiveTool] = useState<DrawingTool>("pen") // Start with pen tool active
@@ -93,10 +81,9 @@ const ScreenshotPreviewWithDrawing = memo(
     // Handle color change with immediate canvas update
     const handleColorChange = useCallback(
       (newColor: string) => {
-        console.log("Color changed to:", newColor)
         setColor(newColor)
 
-        // ✅ Update Zustand store so canvas can read it
+        // Update Zustand store so canvas can read it
         setZustandColor(newColor)
 
         const canvas = drawingCanvasRef?.current || canvasRef.current
@@ -110,10 +97,9 @@ const ScreenshotPreviewWithDrawing = memo(
     // Handle stroke width change with immediate canvas update
     const handleStrokeWidthChange = useCallback(
       (width: number) => {
-        console.log("Stroke width changed to:", width)
         setStrokeWidth(width)
 
-        // ✅ Update Zustand store so canvas can read it
+        // Update Zustand store so canvas can read it
         setZustandStrokeWidth(width)
 
         const canvas = drawingCanvasRef?.current || canvasRef.current
@@ -127,10 +113,9 @@ const ScreenshotPreviewWithDrawing = memo(
     // Handle font size change with immediate canvas update
     const handleFontSizeChange = useCallback(
       (size: number) => {
-        console.log("Font size changed to:", size)
         setFontSize(size)
 
-        // ✅ Update Zustand store so canvas can read it
+        // Update Zustand store so canvas can read it
         setZustandFontSize(size)
 
         const canvas = drawingCanvasRef?.current || canvasRef.current
@@ -146,18 +131,15 @@ const ScreenshotPreviewWithDrawing = memo(
     const isComparisonView = hasHighlightedVersion
 
     // History is now managed by the canvas itself
-    // const [history, setHistory] = useState<DrawingElement[][]>([[]])
-    // const [historyIndex, setHistoryIndex] = useState(0)
     const canvasRef = useRef<any>(null)
     const isUndoRedoOperation = useRef(false)
     const lastSavedElementsRef = useRef<string>("")
 
     const handleToolChange = useCallback(
       (tool: DrawingTool) => {
-        console.log("Tool changed to:", tool)
         setActiveTool(tool)
 
-        // ✅ Update Zustand store so canvas can read it
+        // Update Zustand store so canvas can read it
         setZustandTool(tool)
 
         // Clear any ongoing drawing operations when switching tools
@@ -176,7 +158,7 @@ const ScreenshotPreviewWithDrawing = memo(
 
     // Initialize canvas state when canvas becomes available
     useEffect(() => {
-      // ✅ Sync Zustand store with initial local state
+      // Sync Zustand store with initial local state
       setZustandTool(activeTool)
       setZustandColor(color)
       setZustandStrokeWidth(strokeWidth)
@@ -184,13 +166,11 @@ const ScreenshotPreviewWithDrawing = memo(
 
       const canvas = drawingCanvasRef?.current || canvasRef.current
       if (canvas?.updateDrawingState) {
-        console.log("Initializing canvas state")
         canvas.updateDrawingState({
           tool: activeTool,
           color,
           strokeWidth,
           fontSize
-          // Removed elements - canvas manages its own elements through React state
         })
       }
     }, [
@@ -206,16 +186,6 @@ const ScreenshotPreviewWithDrawing = memo(
       setZustandFontSize
     ])
 
-    // Canvas manages its own elements through React state - no external syncing needed
-    // useEffect(() => {
-    //   if (!isUndoRedoOperation.current) {
-    //     const canvas = drawingCanvasRef?.current || canvasRef.current
-    //     if (canvas?.updateDrawingState) {
-    //       canvas.updateDrawingState({ elements })
-    //     }
-    //   }
-    // }, [elements, drawingCanvasRef])
-
     // Refs to prevent flashing during rapid updates
     const elementsLengthRef = useRef(elements.length)
     const lastProcessedElementsRef = useRef<string>("")
@@ -230,23 +200,13 @@ const ScreenshotPreviewWithDrawing = memo(
           newElements.length === elementsLengthRef.current &&
           newElementsStr === lastProcessedElementsRef.current
         ) {
-          console.log("Elements change ignored - no actual change detected")
           return
         }
-
-        console.log("Elements changed:", {
-          oldLength: elements.length,
-          newLength: newElements.length,
-          isUndoRedo: isUndoRedoOperation.current,
-          timestamp: Date.now()
-        })
 
         // Update elements state immediately but batch other operations
         setElements(newElements)
         elementsLengthRef.current = newElements.length
         lastProcessedElementsRef.current = newElementsStr
-
-        // Canvas handles its own history - no need for parent history management
 
         // Debounce save operations to prevent rapid calls
         if (onDrawingSave) {
@@ -255,7 +215,6 @@ const ScreenshotPreviewWithDrawing = memo(
           }
           saveTimeoutRef.current = setTimeout(() => {
             if (lastSavedElementsRef.current !== newElementsStr) {
-              console.log("Saving elements:", newElements.length, "items")
               lastSavedElementsRef.current = newElementsStr
               onDrawingSave(currentImage, newElements, currentImage)
             }
@@ -275,33 +234,25 @@ const ScreenshotPreviewWithDrawing = memo(
     }, [])
 
     const handleUndo = useCallback(() => {
-      console.log("Undo requested - delegating to canvas")
       const canvas = drawingCanvasRef?.current || canvasRef.current
       if (canvas?.undo) {
-        const success = canvas.undo()
-        console.log("Canvas undo result:", success)
-        return success
+        return canvas.undo()
       }
       return false
     }, [drawingCanvasRef, canvasRef])
 
     const handleRedo = useCallback(() => {
-      console.log("Redo requested - delegating to canvas")
       const canvas = drawingCanvasRef?.current || canvasRef.current
       if (canvas?.redo) {
-        const success = canvas.redo()
-        console.log("Canvas redo result:", success)
-        return success
+        return canvas.redo()
       }
       return false
     }, [drawingCanvasRef, canvasRef])
 
     const handleClear = useCallback(() => {
-      console.log("Clear requested - delegating to canvas")
       const canvas = drawingCanvasRef?.current || canvasRef.current
       if (canvas?.resetHistory) {
         canvas.resetHistory()
-        console.log("Canvas cleared")
       }
     }, [drawingCanvasRef, canvasRef])
 
@@ -379,12 +330,6 @@ const ScreenshotPreviewWithDrawing = memo(
                 src={figmaDesign.imageUrl}
                 alt={figmaDesign.designName}
                 className="max-h-full max-w-full object-contain"
-                onLoad={() =>
-                  console.log("🎨 Figma design image loaded successfully")
-                }
-                onError={(e) =>
-                  console.error("🚨 Figma design image failed to load:", e)
-                }
               />
               <div className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
                 <div className="flex flex-col items-center gap-2 text-white">

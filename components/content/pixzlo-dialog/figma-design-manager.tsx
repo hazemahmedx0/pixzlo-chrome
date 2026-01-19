@@ -50,26 +50,7 @@ const FigmaDesignManager = memo(
 
     const hasDesigns = designs.length > 0
 
-    // Debug authentication state changes - only log when popup is open
-    useEffect(() => {
-      if (isFigmaPopupOpen) {
-        console.log("🎯 FigmaDesignManager - Figma popup opened:", {
-          isAuthenticated,
-          authLoading,
-          isLoadingDesigns,
-          hasDesigns
-        })
-      }
-    }, [
-      isAuthenticated,
-      authLoading,
-      isLoadingDesigns,
-      hasDesigns,
-      isFigmaPopupOpen
-    ])
-
     const handleAddDesignClick = (): void => {
-      console.log("🎯 Add design clicked - opening modal...")
       setIsFigmaPopupOpen(true)
       // Metadata fetching is handled by the modal component
     }

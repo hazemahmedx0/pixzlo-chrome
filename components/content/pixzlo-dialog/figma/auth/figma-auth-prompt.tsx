@@ -28,7 +28,6 @@ const FigmaAuthPrompt = memo(
     }, [isAuthenticated, onAuthenticated])
 
     const handleAuthClick = async (): Promise<void> => {
-      console.log("🔐 Starting Figma OAuth via background script...")
       setAuthInProgress(true)
 
       try {
@@ -56,8 +55,6 @@ const FigmaAuthPrompt = memo(
         })
 
         if (result.success) {
-          console.log("🔐 OAuth SUCCESS! Checking auth status...")
-
           // Backend sometimes takes a moment to persist the integration status.
           // Retry a few times so the UI flips to "connected" without requiring a page refresh.
           const retryDelaysMs = [300, 600, 1000, 1500, 2000]
@@ -70,11 +67,9 @@ const FigmaAuthPrompt = memo(
           // Let the `isAuthenticated` effect drive `onAuthenticated` (avoids double-calls).
           setAuthInProgress(false)
         } else {
-          console.error("🔐 OAuth failed:", result.error)
           setAuthInProgress(false)
         }
-      } catch (error) {
-        console.error("🔐 OAuth setup failed:", error)
+      } catch {
         setAuthInProgress(false)
       }
     }

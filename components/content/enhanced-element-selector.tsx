@@ -1,6 +1,7 @@
 import { Toaster } from "@/components/ui/sonner"
 import { CaptureService } from "@/lib/capture-service"
 import { ElementSelectionService } from "@/lib/element-selection-service"
+import { usePixzloDialogStore } from "@/stores/pixzlo-dialog"
 import type { CaptureType, Screenshot } from "@/types/capture"
 import { memo, useCallback, useEffect, useRef, useState } from "react"
 
@@ -37,9 +38,6 @@ const EnhancedElementSelector = memo(
     useEffect(() => {
       setIsActive(true)
       setCaptureMode(initialMode)
-      console.log(
-        `🟢 Enhanced Element Selector activated with mode: ${initialMode}`
-      )
     }, [initialMode])
 
     const handleClose = useCallback(() => {
@@ -51,23 +49,12 @@ const EnhancedElementSelector = memo(
       hasTriggeredFullscreenCapture.current = false
 
       // Notify parent to reset the mount state
-      console.log(
-        "🔄 EnhancedElementSelector: Calling onReset to reset parent state"
-      )
       onReset?.()
     }, [onReset])
 
     const handleElementSelect = useCallback(
       async (element: HTMLElement, rect: DOMRect) => {
-        console.log(
-          "🎯 handleElementSelect called with element:",
-          element.tagName,
-          element.className
-        )
-        console.log("🎯 Element rect:", rect)
-
-        // TEMPORARY: Force dialog to open immediately for debugging
-        console.log("🔧 DEBUGGING: Forcing dialog to open immediately")
+        // Force dialog to open immediately
         const fallbackScreenshots = [
           {
             dataUrl:
@@ -88,11 +75,9 @@ const EnhancedElementSelector = memo(
         setSelectedElement(element)
         setShowDialog(true)
         setIsActive(false)
-        console.log("✅ Force-opened dialog with fallback data")
 
         // Try capture in background but don't block dialog opening
         try {
-          console.log("🚀 Starting element capture in background...")
           const screenshots = await elementSelectionService.captureElement(
             element,
             {
@@ -103,16 +88,9 @@ const EnhancedElementSelector = memo(
             rect
           )
 
-          console.log(
-            "✅ Element capture successful, updating screenshots:",
-            screenshots.length
-          )
           setScreenshots(screenshots)
-        } catch (error) {
-          console.error(
-            "❌ Failed to capture element (but dialog already open):",
-            error
-          )
+        } catch {
+          // Failed to capture element (but dialog already open)
         }
       },
       [elementSelectionService]
@@ -125,21 +103,17 @@ const EnhancedElementSelector = memo(
         width: number
         height: number
       }) => {
-        console.log("🎯 handleAreaSelect called with area:", area)
         try {
-          console.log("📸 Calling captureService.captureArea with:", area)
           const screenshot = await captureService.captureArea(area, {
             type: "area",
             includeMetadata: true,
             preserveOriginalAspect: true
           })
 
-          console.log("✅ Screenshot captured successfully:", screenshot)
           setScreenshots([screenshot])
           setShowDialog(true)
           setIsActive(false)
-        } catch (error) {
-          console.error("Failed to capture area:", error)
+        } catch {
           // Show dialog with fallback data for debugging
           setShowDialog(true)
           setScreenshots([
@@ -174,8 +148,7 @@ const EnhancedElementSelector = memo(
         setScreenshots([screenshot])
         setShowDialog(true)
         setIsActive(false)
-      } catch (error) {
-        console.error("Failed to capture full screen:", error)
+      } catch {
         // Show dialog with fallback data for debugging
         setShowDialog(true)
         setScreenshots([
@@ -230,7 +203,6 @@ const EnhancedElementSelector = memo(
     const handleModeChange = useCallback(
       (mode: "pointer" | "element" | "area" | "fullscreen") => {
         setCaptureMode(mode)
-        console.log(`🔄 Mode changed to: ${mode}`)
         if (mode === "fullscreen") {
           handleFullScreenCapture()
         }
@@ -240,34 +212,30 @@ const EnhancedElementSelector = memo(
 
     const handleSubmit = useCallback((issueData: any) => {
       // Here you would typically send the issue data to your backend
-      console.log("Issue submitted:", issueData)
-
       // IMPORTANT: Don't automatically close the dialog here!
       // Let the background submission process handle success/error states
       // The dialog should only close when the user explicitly closes it
       // or when there's a successful submission with a copied URL
-
-      console.log(
-        "✅ Issue submission initiated - dialog remains open for user feedback"
-      )
     }, [])
 
-    // Debug logging
-    console.log("🔍 EnhancedElementSelector render state:", {
-      isActive,
-      captureMode,
-      showDialog,
-      screenshotsLength: screenshots.length,
-      selectedElement: selectedElement?.tagName
-    })
+    // Handle successful issue creation - close dialog but keep extension active
+    const handleIssueCreated = useCallback(() => {
+      // Reset the store form data and close dialog state
+      const store = usePixzloDialogStore.getState()
+      store.resetForm()
+      store.closeDialog()
+
+      // Close the dialog in local state
+      setShowDialog(false)
+      setScreenshots([])
+      setSelectedElement(null)
+      // Re-enable selection mode so user can select another element
+      setIsActive(true)
+      setCaptureMode(initialMode)
+      hasTriggeredFullscreenCapture.current = false
+    }, [initialMode])
 
     if (!isActive && !showDialog) {
-      console.log(
-        "🚫 Not rendering - isActive:",
-        isActive,
-        "showDialog:",
-        showDialog
-      )
       return null
     }
 
@@ -302,45 +270,37 @@ const EnhancedElementSelector = memo(
         )}
 
         {/* Design QA screenshot dialog */}
-        {showDialog &&
-          (() => {
-            console.log("🎨 Rendering PixzloDialog with:", {
-              showDialog,
-              screenshotsCount: screenshots.length,
-              selectedElement: selectedElement?.tagName
-            })
-            return (
-              <PixzloDialog
-                screenshots={
-                  screenshots.length > 0
-                    ? screenshots
-                    : [
-                        {
-                          dataUrl:
-                            "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
-                          timestamp: Date.now(),
-                          type: "element",
-                          metadata: {
-                            url: window.location.href,
-                            device: "Desktop",
-                            browser: "Chrome",
-                            screenResolution: "1920x1080px",
-                            viewportSize: "1200x800px"
-                          }
-                        }
-                      ]
-                }
-                selectedElement={selectedElement}
-                isOpen={showDialog}
-                onClose={() => {
-                  console.log("🔄 PixzloDialog onClose called")
-                  setShowDialog(false)
-                  handleClose()
-                }}
-                onSubmit={handleSubmit}
-              />
-            )
-          })()}
+        {showDialog && (
+          <PixzloDialog
+            screenshots={
+              screenshots.length > 0
+                ? screenshots
+                : [
+                    {
+                      dataUrl:
+                        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+                      timestamp: Date.now(),
+                      type: "element",
+                      metadata: {
+                        url: window.location.href,
+                        device: "Desktop",
+                        browser: "Chrome",
+                        screenResolution: "1920x1080px",
+                        viewportSize: "1200x800px"
+                      }
+                    }
+                  ]
+            }
+            selectedElement={selectedElement}
+            isOpen={showDialog}
+            onClose={() => {
+              setShowDialog(false)
+              handleClose()
+            }}
+            onSubmit={handleSubmit}
+            onIssueCreated={handleIssueCreated}
+          />
+        )}
 
         {/* Toast notifications */}
         <Toaster />

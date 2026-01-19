@@ -15,7 +15,6 @@ export const useDialogSubmission = (
   const handleSubmit = useCallback(() => {
     const issueData = createIssueData()
     if (!issueData) {
-      console.error("Failed to create issue data")
       return
     }
 
@@ -184,15 +183,10 @@ export const useDialogSubmission = (
             error?: string
           }) => {
             if (chrome.runtime.lastError) {
-              console.error(
-                "Background message error:",
-                chrome.runtime.lastError.message
-              )
               onSubmit?.(issueData)
               return
             }
             if (!response?.success) {
-              console.error("Issue submission failed:", response?.error)
               onSubmit?.(issueData)
               return
             }
@@ -201,27 +195,21 @@ export const useDialogSubmission = (
               navigator.clipboard
                 ?.writeText(url)
                 .then(() => {
-                  console.log("✅ Issue URL copied to clipboard:", url)
                   // Show success feedback to user
                   alert(
-                    "✅ Issue created successfully! URL copied to clipboard."
+                    "Issue created successfully! URL copied to clipboard."
                   )
                 })
-                .catch((err) => {
-                  console.error("Failed to copy URL to clipboard:", err)
+                .catch(() => {
                   // Show URL to user if clipboard fails
-                  alert(`✅ Issue created successfully! URL: ${url}`)
+                  alert(`Issue created successfully! URL: ${url}`)
                 })
             } else {
-              console.log("✅ Issue created successfully (no URL returned)")
-              alert("✅ Issue created successfully!")
+              alert("Issue created successfully!")
             }
 
             // Don't call onSubmit here as it might close the dialog
             // Let the user close the dialog manually after seeing the success message
-            console.log(
-              "🔍 Issue submission completed - dialog remains open for user"
-            )
           }
         )
       })()

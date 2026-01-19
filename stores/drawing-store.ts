@@ -14,8 +14,7 @@ interface DrawingHistory {
 const deepClone = <T>(obj: T): T => {
   try {
     return JSON.parse(JSON.stringify(obj))
-  } catch (error) {
-    console.error("Failed to deep clone object:", error)
+  } catch {
     // Fallback: return the original object (not ideal but prevents crashes)
     return obj
   }
@@ -106,12 +105,10 @@ const addToHistory = (
   try {
     // Validate inputs
     if (!history || !newState) {
-      console.error("Invalid history or state provided to addToHistory")
       return history
     }
 
     if (!Array.isArray(history.states)) {
-      console.error("History states is not an array")
       return {
         states: [deepClone(newState)],
         currentIndex: 0
@@ -133,8 +130,7 @@ const addToHistory = (
     }
 
     return newHistory
-  } catch (error) {
-    console.error("Error adding to history:", error)
+  } catch {
     // Return original history as fallback
     return history
   }
@@ -183,11 +179,9 @@ export const useDrawingStore = create<DrawingStore>((set, get) => {
 
     // Element operations
     addElement: (element: DrawingElement) => {
-      console.log("Adding element:", element.type, element.id)
       set((state) => {
         try {
           if (!element || !element.id) {
-            console.error("Invalid element provided to addElement")
             return state
           }
 
@@ -196,7 +190,6 @@ export const useDrawingStore = create<DrawingStore>((set, get) => {
             (el) => el.id === element.id
           )
           if (existingElement) {
-            console.warn(`Element with id ${element.id} already exists`)
             return state
           }
 
@@ -205,19 +198,13 @@ export const useDrawingStore = create<DrawingStore>((set, get) => {
             elements: [...state.drawingState.elements, element]
           }
 
-          console.log("New element count:", newState.elements.length)
-          console.log("Adding to history...")
-
           const newHistory = addToHistory(state.history, newState)
-          console.log("New history length:", newHistory.states.length)
-          console.log("New history index:", newHistory.currentIndex)
 
           return {
             drawingState: newState,
             history: newHistory
           }
-        } catch (error) {
-          console.error("Error adding element:", error)
+        } catch {
           return state
         }
       })
@@ -227,7 +214,6 @@ export const useDrawingStore = create<DrawingStore>((set, get) => {
       set((state) => {
         try {
           if (!id || !updates) {
-            console.error("Invalid id or updates provided to updateElement")
             return state
           }
 
@@ -235,7 +221,6 @@ export const useDrawingStore = create<DrawingStore>((set, get) => {
             (el) => el.id === id
           )
           if (!elementExists) {
-            console.warn(`Element with id ${id} not found`)
             return state
           }
 
@@ -250,8 +235,7 @@ export const useDrawingStore = create<DrawingStore>((set, get) => {
             drawingState: newState,
             history: addToHistory(state.history, newState)
           }
-        } catch (error) {
-          console.error("Error updating element:", error)
+        } catch {
           return state
         }
       })
@@ -261,7 +245,6 @@ export const useDrawingStore = create<DrawingStore>((set, get) => {
       set((state) => {
         try {
           if (!id) {
-            console.error("Invalid id provided to removeElement")
             return state
           }
 
@@ -269,7 +252,6 @@ export const useDrawingStore = create<DrawingStore>((set, get) => {
             (el) => el.id === id
           )
           if (!elementExists) {
-            console.warn(`Element with id ${id} not found`)
             return state
           }
 
@@ -282,8 +264,7 @@ export const useDrawingStore = create<DrawingStore>((set, get) => {
             drawingState: newState,
             history: addToHistory(state.history, newState)
           }
-        } catch (error) {
-          console.error("Error removing element:", error)
+        } catch {
           return state
         }
       })
@@ -322,69 +303,46 @@ export const useDrawingStore = create<DrawingStore>((set, get) => {
 
     // History operations
     undo: () => {
-      console.log("Store undo called")
       set((state) => {
         try {
-          console.log("Current history index:", state.history.currentIndex)
-          console.log("Total history states:", state.history.states.length)
-
           if (state.history.currentIndex > 0) {
             const newIndex = state.history.currentIndex - 1
             const previousState = state.history.states[newIndex]
 
             if (!previousState) {
-              console.error("Previous state not found in history")
               return state
             }
-
-            console.log("Undoing to index:", newIndex)
-            console.log(
-              "Previous state elements:",
-              previousState.elements.length
-            )
 
             return {
               drawingState: deepClone(previousState),
               history: { ...state.history, currentIndex: newIndex }
             }
-          } else {
-            console.log("Cannot undo - at beginning of history")
           }
-        } catch (error) {
-          console.error("Error during undo operation:", error)
+        } catch {
+          // Error during undo operation
         }
         return state
       })
     },
 
     redo: () => {
-      console.log("Store redo called")
       set((state) => {
         try {
-          console.log("Current history index:", state.history.currentIndex)
-          console.log("Total history states:", state.history.states.length)
-
           if (state.history.currentIndex < state.history.states.length - 1) {
             const newIndex = state.history.currentIndex + 1
             const nextState = state.history.states[newIndex]
 
             if (!nextState) {
-              console.error("Next state not found in history")
               return state
             }
-
-            console.log("Redoing to index:", newIndex)
-            console.log("Next state elements:", nextState.elements.length)
 
             return {
               drawingState: deepClone(nextState),
               history: { ...state.history, currentIndex: newIndex }
             }
-          } else {
-            console.log("Cannot redo - at end of history")
           }
-        } catch (error) {
-          console.error("Error during redo operation:", error)
+        } catch {
+          // Error during redo operation
         }
         return state
       })
@@ -483,20 +441,9 @@ export const useDrawingStore = create<DrawingStore>((set, get) => {
 
     // Complete state management
     resetDrawing: () => {
-      console.log("Resetting drawing...")
       try {
         const initialState = createInitialState()
         const initialHistory = createInitialHistory(initialState)
-
-        console.log(
-          "Reset - Initial state elements:",
-          initialState.elements.length
-        )
-        console.log(
-          "Reset - Initial history:",
-          initialHistory.states.length,
-          "states"
-        )
 
         set((state) => ({
           drawingState: initialState,
@@ -509,10 +456,7 @@ export const useDrawingStore = create<DrawingStore>((set, get) => {
           tempElement: null,
           isDrawing: false
         }))
-
-        console.log("Drawing reset complete")
-      } catch (error) {
-        console.error("Error resetting drawing:", error)
+      } catch {
         // Try to at least clear the elements if full reset fails
         set((state) => ({
           ...state,

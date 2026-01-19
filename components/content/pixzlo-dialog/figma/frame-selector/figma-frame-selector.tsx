@@ -130,7 +130,6 @@ const FigmaFrameSelector = memo(
     const handleFrameChange = useCallback(
       (frame: FigmaFrame): void => {
         // This could trigger a frame switch if needed
-        console.log("🔄 Frame changed to:", frame.name)
         onFrameSwitch?.({ id: frame.id })
       },
       [onFrameSwitch]
@@ -296,13 +295,7 @@ const FigmaFrameSelector = memo(
     const handleClick = useCallback(
       (e: React.MouseEvent) => {
         if (hoveredElement) {
-          console.log(
-            "🖱️ Clicked on element:",
-            hoveredElement.name,
-            hoveredElement.id
-          )
-
-          // 🔧 FIX: Remove the blue highlight before capturing the screenshot
+          // Remove the blue highlight before capturing the screenshot
           // This ensures the captured image doesn't include the selection box
           removeHighlight()
 
