@@ -7,11 +7,11 @@ import { ImageDownloader } from "@/lib/image-download"
 import { usePixzloDialogStore } from "@/stores/pixzlo-dialog"
 import type { IssueData, Screenshot } from "@/types/capture"
 import type { DrawingElement } from "@/types/drawing"
-import { FigmaLogoIcon } from "@phosphor-icons/react"
 import { X } from "lucide-react"
 import { memo, useCallback, useEffect, useRef } from "react"
 
 import FigmaModalContent from "./figma/figma-modal-content"
+import { PageSelector } from "./figma/page-selector"
 import FormSection from "./form/form-section"
 import ImageSection from "./images/image-section"
 import Footer from "./layout/footer"
@@ -412,7 +412,7 @@ const PixzloDialog = memo(
             data-pixzlo-ui="figma-popup-overlay">
             {/* Modal Content */}
             <div
-              className="flex h-full flex-col overflow-hidden rounded-lg bg-white shadow-2xl"
+              className="flex h-full flex-col overflow-hidden rounded-[20px] bg-white shadow-2xl"
               style={{
                 position: "fixed",
                 top: "5vh",
@@ -426,19 +426,17 @@ const PixzloDialog = memo(
                 pointerEvents: "auto" // Enable clicks on modal
               }}
               onClick={(e) => e.stopPropagation()}>
-              {/* Close Button */}
-              <div className="border-separator flex h-[58px] items-center justify-between gap-2 border-b p-5">
-                <div className="flex items-center text-paragraph-md text-gray-850">
-                  <FigmaLogoIcon
-                    className="mr-3 text-gray-500"
-                    size={16}
-                    weight="duotone"
-                  />{" "}
-                  Select design
+              {/* Header with Page selector */}
+              <div className="border-separator flex h-[58px] items-center justify-between border-b px-5">
+                {/* Left side - Page selector */}
+                <div className="flex items-center gap-3">
+                  <PageSelector />
                 </div>
+
+                {/* Right side - Close button */}
                 <button
                   onClick={() => setIsFigmaPopupOpen(false)}
-                  className="absolute right-4 top-4 z-10 rounded-full bg-white/80 p-2 text-gray-500 shadow-sm transition-colors hover:bg-white hover:text-gray-700">
+                  className="flex h-8 w-8 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700">
                   <X className="h-4 w-4" />
                 </button>
               </div>

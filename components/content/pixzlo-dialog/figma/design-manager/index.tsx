@@ -81,6 +81,9 @@ const FigmaDesignManager = memo(
     const autoLoadTriggeredRef = useRef(false)
     const previousDesignCountRef = useRef(0)
 
+    // Request cancellation: use a request ID to track and cancel stale requests
+    const currentRequestIdRef = useRef<number>(0)
+
     const {
       metadata,
       isLoadingMetadata,
@@ -179,6 +182,23 @@ const FigmaDesignManager = memo(
       }
 
       if (frameData) {
+        const matchedDesign = safeExistingDesigns.find(
+          (design) =>
+            design.figma_frame_id === frameData.id ||
+            design.frame_url === figmaUrl
+        )
+
+        if (matchedDesign) {
+          return {
+            id: matchedDesign.id,
+            name: matchedDesign.frame_name || frameData.name || "Current Frame",
+            figmaUrl: matchedDesign.frame_url,
+            imageUrl: frameImageUrl || matchedDesign.thumbnail_url || "",
+            fileId: matchedDesign.figma_file_id,
+            figmaFrameId: matchedDesign.figma_frame_id
+          }
+        }
+
         return {
           id: frameData.id,
           name: frameData.name || "Current Frame",
@@ -193,7 +213,14 @@ const FigmaDesignManager = memo(
       }
 
       return undefined
-    }, [selectedDesign, frameData, frameImageUrl, figmaUrl, figmaService])
+    }, [
+      selectedDesign,
+      frameData,
+      frameImageUrl,
+      figmaUrl,
+      figmaService,
+      safeExistingDesigns
+    ])
 
     // Use normalized URL (origin + pathname only) to match API response format
     // This prevents infinite loops caused by query params/hash mismatch
@@ -231,6 +258,23 @@ const FigmaDesignManager = memo(
         }
       }
     }, [initialContext, isOpen, figmaService])
+
+    // Sync selectedDesignId to match existing design when reopening
+    useEffect(() => {
+      if (!isOpen || !initialContext || selectedDesignId) {
+        return
+      }
+
+      const matchedDesign = safeExistingDesigns.find(
+        (design) =>
+          design.figma_frame_id === initialContext.frameId ||
+          design.frame_url === initialContext.figmaUrl
+      )
+
+      if (matchedDesign) {
+        setSelectedDesignId(matchedDesign.id)
+      }
+    }, [isOpen, initialContext, selectedDesignId, safeExistingDesigns])
 
     // Fetch frame images when file is loaded
     useEffect(() => {
@@ -279,7 +323,10 @@ const FigmaDesignManager = memo(
 
     // Event handlers
     const handleCancel = (): void => {
-      if (orderedExistingDesigns.length > 0 && previousViewMode === "select-element") {
+      if (
+        orderedExistingDesigns.length > 0 &&
+        previousViewMode === "select-element"
+      ) {
         // Going back to the previous frame - restore state without reloading
         setViewMode("select-element")
         setPreviousViewMode(null)
@@ -337,7 +384,10 @@ const FigmaDesignManager = memo(
     }
 
     const handleFigmaUrlSubmit = useCallback(
-      async (overrideUrl?: string): Promise<void> => {
+      async (
+        overrideUrl?: string,
+        context?: { frameId?: string }
+      ): Promise<void> => {
         // Determine the URL we're about to fetch
         const urlToFetch = overrideUrl?.trim() || figmaUrlRef.current.trim()
 
@@ -347,16 +397,17 @@ const FigmaDesignManager = memo(
         const isSameAsCachedUrl =
           initialContext?.figmaUrl &&
           urlToFetch === initialContext.figmaUrl.trim()
+        const isSameAsCachedFrame =
+          !context?.frameId ||
+          !initialContext?.frameId ||
+          context.frameId === initialContext.frameId
 
         if (
           isChangeDesignMode &&
           previousViewMode === null &&
-          isSameAsCachedUrl
+          isSameAsCachedUrl &&
+          isSameAsCachedFrame
         ) {
-          return
-        }
-
-        if (isProcessing) {
           return
         }
 
@@ -372,9 +423,10 @@ const FigmaDesignManager = memo(
           return
         }
 
-        if (figmaUrlRequestRef.current === urlCandidate) {
-          return
-        }
+        // Generate a new request ID to track this request
+        // This allows us to cancel stale requests when user switches designs
+        currentRequestIdRef.current += 1
+        const thisRequestId = currentRequestIdRef.current
 
         if (!overrideUrl) {
           setSelectedDesignId(null)
@@ -384,9 +436,10 @@ const FigmaDesignManager = memo(
         setIsProcessing(true)
         figmaUrlRequestRef.current = urlCandidate
         setError(null)
-        setFrameData(null)
-        setFrameElements([])
-        setFrameImageUrl("")
+        // Don't clear frame data immediately to keep showing current design during load
+        // setFrameData(null)
+        // setFrameElements([])
+        // setFrameImageUrl("")
 
         try {
           // Check if URL has node-id parameter for direct frame rendering
@@ -435,6 +488,12 @@ const FigmaDesignManager = memo(
               }
             })
 
+            // Check if this request was cancelled (a newer request was started)
+            if (thisRequestId !== currentRequestIdRef.current) {
+              // This request is stale, discard the response
+              return
+            }
+
             if (!response.success || !response.data) {
               setError(response.error || "Failed to render Figma frame")
               return
@@ -443,6 +502,11 @@ const FigmaDesignManager = memo(
             try {
               // Check if component is still mounted and dialog is still open
               if (!isOpen) {
+                return
+              }
+
+              // Final check before updating state
+              if (thisRequestId !== currentRequestIdRef.current) {
                 return
               }
 
@@ -468,6 +532,11 @@ const FigmaDesignManager = memo(
             // Fetch Figma file using Figma API
             const response = await figmaService.getFigmaFile(parsed.fileId)
 
+            // Check if this request was cancelled
+            if (thisRequestId !== currentRequestIdRef.current) {
+              return
+            }
+
             if (!response.success || !response.data) {
               setError(response.error || "Failed to fetch Figma file")
               return
@@ -478,33 +547,44 @@ const FigmaDesignManager = memo(
             setViewMode("select-frame")
           }
         } catch (err) {
-          setError(
-            err instanceof Error ? err.message : "Failed to fetch Figma file"
-          )
-      } finally {
-        setIsProcessing(false)
-        figmaUrlRequestRef.current = null
-        // Clear figma flow active flag
-        try {
-          usePixzloDialogStore.getState().setIsFigmaFlowActive(false)
-        } catch {
-          // Failed to reset Figma flow flag
+          // Only show error if this request wasn't cancelled
+          if (thisRequestId === currentRequestIdRef.current) {
+            setError(
+              err instanceof Error ? err.message : "Failed to fetch Figma file"
+            )
+          }
+        } finally {
+          // Only update processing state if this is still the current request
+          if (thisRequestId === currentRequestIdRef.current) {
+            setIsProcessing(false)
+            figmaUrlRequestRef.current = null
+          }
+          // Clear figma flow active flag
+          try {
+            usePixzloDialogStore.getState().setIsFigmaFlowActive(false)
+          } catch {
+            // Failed to reset Figma flow flag
+          }
         }
-      }
-    },
-    [
-      figmaService,
-      isProcessing,
-      isChangeDesignMode,
-      previousViewMode,
-      initialContext
-    ]
-  )
+      },
+      [
+        figmaService,
+        isChangeDesignMode,
+        previousViewMode,
+        initialContext,
+        isOpen
+      ]
+    )
 
     const loadDesignFromLink = useCallback(
       async (design: FigmaDesignLink): Promise<void> => {
+        const resolvedFrameUrl = design.frame_url.includes("node-id=")
+          ? design.frame_url
+          : `${design.frame_url}${design.frame_url.includes("?") ? "&" : "?"}node-id=${encodeURIComponent(design.figma_frame_id.replace(/:/g, "-"))}`
         setSelectedDesignId(design.id)
-        await handleFigmaUrlSubmit(design.frame_url)
+        await handleFigmaUrlSubmit(resolvedFrameUrl, {
+          frameId: design.figma_frame_id
+        })
       },
       [handleFigmaUrlSubmit]
     )
@@ -707,10 +787,8 @@ const FigmaDesignManager = memo(
           throw new Error("Frame image has invalid dimensions.")
         }
 
-        const scaleX =
-          displayedWidth / frameData.absoluteBoundingBox.width
-        const scaleY =
-          displayedHeight / frameData.absoluteBoundingBox.height
+        const scaleX = displayedWidth / frameData.absoluteBoundingBox.width
+        const scaleY = displayedHeight / frameData.absoluteBoundingBox.height
 
         // Calculate element position relative to the frame image (not viewport!)
         const elementRelativeX =
@@ -734,10 +812,7 @@ const FigmaDesignManager = memo(
         // Clamp the capture area to stay within the frame image boundaries
         const clampedX = Math.max(0, captureX)
         const clampedY = Math.max(0, captureY)
-        const clampedWidth = Math.min(
-          captureWidth,
-          displayedWidth - clampedX
-        )
+        const clampedWidth = Math.min(captureWidth, displayedWidth - clampedX)
         const clampedHeight = Math.min(
           captureHeight,
           displayedHeight - clampedY

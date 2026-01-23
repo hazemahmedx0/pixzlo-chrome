@@ -1,4 +1,5 @@
 import { FigmaService } from "@/lib/figma-service"
+import { getSelectedWorkspaceId } from "@/stores/workspace-store"
 import type { FigmaAuthStatus, FigmaDesignLink } from "@/types/figma"
 import { create } from "zustand"
 
@@ -27,6 +28,7 @@ interface FigmaMetadata {
 
 interface FigmaDataState {
   metadata: FigmaMetadata
+  metadataWorkspaceId: string | null
   isLoadingMetadata: boolean
   metadataError?: string
   metadataLastFetched: number | null
@@ -61,7 +63,7 @@ interface FigmaDataState {
   }) => Promise<boolean>
   deleteDesignLink: (linkId: string) => Promise<boolean>
   setStatus: (status: FigmaAuthStatus | null) => void
-  setMetadata: (metadata: FigmaMetadata) => void
+  setMetadata: (metadata: FigmaMetadata, workspaceId?: string | null) => void
   reset: () => void
 }
 
@@ -77,6 +79,7 @@ const emptyMetadata: FigmaMetadata = {
 
 export const useFigmaDataStore = create<FigmaDataState>((set, get) => ({
   metadata: emptyMetadata,
+  metadataWorkspaceId: null,
   isLoadingMetadata: false,
   metadataError: undefined,
   metadataLastFetched: undefined,
@@ -96,9 +99,10 @@ export const useFigmaDataStore = create<FigmaDataState>((set, get) => ({
       }
     }),
 
-  setMetadata: (metadata) =>
+  setMetadata: (metadata, workspaceId) =>
     set({
       metadata,
+      metadataWorkspaceId: workspaceId ?? get().metadataWorkspaceId ?? null,
       metadataLastFetched: Date.now(),
       metadataError: undefined,
       isConnected: Boolean(metadata.integration?.is_active),
@@ -125,13 +129,16 @@ export const useFigmaDataStore = create<FigmaDataState>((set, get) => ({
       }
     }
     const urlToUse = normalizeUrl(websiteUrl ?? window.location.href)
+    const resolvedWorkspaceId =
+      options?.workspaceId ?? (await getSelectedWorkspaceId()) ?? null
 
     // Check if we already have fresh data for this URL
     if (
       !options?.force &&
       state.metadataLastFetched &&
       Date.now() - state.metadataLastFetched < CACHE_DURATION &&
-      state.metadata.website?.url === urlToUse
+      state.metadata.website?.url === urlToUse &&
+      state.metadataWorkspaceId === resolvedWorkspaceId
     ) {
       return
     }
@@ -142,12 +149,13 @@ export const useFigmaDataStore = create<FigmaDataState>((set, get) => ({
       const service = FigmaService.getInstance()
       const response = await service.getMetadata(urlToUse, {
         force: Boolean(options?.force),
-        workspaceId: options?.workspaceId
+        workspaceId: resolvedWorkspaceId ?? undefined
       })
 
       if (!response.success || !response.data) {
         set({
           metadata: emptyMetadata,
+          metadataWorkspaceId: resolvedWorkspaceId,
           isLoadingMetadata: false,
           metadataError: response.error || "Failed to fetch Figma metadata",
           metadataLastFetched: null,
@@ -167,6 +175,7 @@ export const useFigmaDataStore = create<FigmaDataState>((set, get) => ({
           ...response.data,
           designLinks: normalizedDesignLinks
         },
+        metadataWorkspaceId: resolvedWorkspaceId,
         isLoadingMetadata: false,
         metadataError: undefined,
         metadataLastFetched: Date.now(),
@@ -176,6 +185,7 @@ export const useFigmaDataStore = create<FigmaDataState>((set, get) => ({
     } catch (error) {
       set({
         metadata: emptyMetadata,
+        metadataWorkspaceId: resolvedWorkspaceId,
         isLoadingMetadata: false,
         metadataError:
           error instanceof Error
@@ -230,6 +240,7 @@ export const useFigmaDataStore = create<FigmaDataState>((set, get) => ({
         ...response.data,
         designLinks: normalizedDesignLinks
       },
+      metadataWorkspaceId: get().metadataWorkspaceId,
       metadataLastFetched: Date.now(),
       metadataError: undefined,
       isConnected: Boolean(response.data.integration?.is_active)
@@ -267,6 +278,7 @@ export const useFigmaDataStore = create<FigmaDataState>((set, get) => ({
   reset: () =>
     set({
       metadata: emptyMetadata,
+      metadataWorkspaceId: null,
       isLoadingMetadata: false,
       metadataError: undefined,
       metadataLastFetched: null,
