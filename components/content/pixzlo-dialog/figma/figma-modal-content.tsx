@@ -46,18 +46,12 @@ const FigmaModalContent = memo(
         return
       }
 
-      console.log("🎯 Modal content mounted - waiting for auth...", {
-        authLoading,
-        isAuthenticated
-      })
-
       // Metadata is already being fetched by the main dialog via useDialogIntegrationData
       // We just need to wait for it to complete
       setIsCheckingAuth(true)
 
       // Wait briefly for auth state to stabilize, then end checking
       const timer = setTimeout(() => {
-        console.log("✅ Auth state ready", { isAuthenticated, authLoading })
         setIsCheckingAuth(false)
       }, 800)
 
@@ -77,7 +71,6 @@ const FigmaModalContent = memo(
     }, [onAuthCompleted])
 
     if (isCheckingAuth || authLoading) {
-      console.log("⏳ Showing loading state:", { isCheckingAuth, authLoading })
       return (
         <div className="flex h-full items-center justify-center">
           <div className="text-center">

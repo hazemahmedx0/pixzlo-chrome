@@ -28,34 +28,21 @@ chrome.runtime.onInstalled.addListener((details): void => {
   // Set the uninstall URL (works for all install reasons)
   try {
     chrome.runtime.setUninstallURL(EXTENSION_GOODBYE_URL, () => {
-      const lastError = chrome.runtime.lastError
-      if (lastError) {
-        console.error("[Pixzlo] Failed to set uninstall URL:", lastError)
-      }
+      // Silently ignore errors
     })
-  } catch (error) {
-    console.error("[Pixzlo] Failed to set uninstall URL:", error)
+  } catch {
+    // Failed to set uninstall URL
   }
 
   if (details.reason === "install") {
     // Fresh installation - open welcome page
-    console.log("[Pixzlo] Extension installed, opening welcome page")
     try {
       chrome.tabs.create({ url: EXTENSION_WELCOME_URL }, () => {
-        const lastError = chrome.runtime.lastError
-        if (lastError) {
-          console.error("[Pixzlo] Failed to open welcome page:", lastError)
-        }
+        // Silently ignore errors
       })
-    } catch (error) {
-      console.error("[Pixzlo] Failed to open welcome page:", error)
+    } catch {
+      // Failed to open welcome page
     }
-  } else if (details.reason === "update") {
-    // Extension updated - could show changelog if needed
-    console.log(
-      "[Pixzlo] Extension updated from version:",
-      details.previousVersion
-    )
   }
 })
 
@@ -97,7 +84,6 @@ const inFlightFrameRenderRequests = new Map<
  * This reduces server load by making direct API calls from the extension
  */
 async function fetchFigmaFileDirect(fileId: string): Promise<FigmaFile> {
-  console.log("[Figma Direct] Fetching file directly from Figma API:", fileId)
   return directFetchFigmaFile(fileId)
 }
 
@@ -108,11 +94,6 @@ async function renderFigmaNodeDirect(
   fileId: string,
   nodeId: string
 ): Promise<string> {
-  console.log(
-    "[Figma Direct] Rendering node directly from Figma API:",
-    fileId,
-    nodeId
-  )
   return directRenderFigmaNode(fileId, nodeId, "png", 2)
 }
 
@@ -138,8 +119,7 @@ function parseFigmaUrl(
       fileId: fileId,
       nodeId: nodeId ? nodeId.replace("-", ":") : undefined // Convert 119-1968 to 119:1968
     }
-  } catch (error) {
-    console.error("Failed to parse Figma URL:", error)
+  } catch {
     return undefined
   }
 }
@@ -216,8 +196,7 @@ function dataUrlToBlob(dataUrl: string): Blob | undefined {
       bytes[i] = binaryString.charCodeAt(i)
     }
     return new Blob([bytes], { type: mime })
-  } catch (e) {
-    console.warn("Failed to convert dataUrl to Blob", e)
+  } catch {
     return undefined
   }
 }
@@ -330,8 +309,7 @@ async function getStoredWorkspaceId(): Promise<string | undefined> {
     const result = await chrome.storage.local.get(WORKSPACE_STORAGE_KEY)
     const storedId = result[WORKSPACE_STORAGE_KEY] as string | undefined
     return storedId
-  } catch (error) {
-    console.error("Error getting stored workspace ID:", error)
+  } catch {
     return undefined
   }
     }
@@ -441,16 +419,12 @@ async function getUserActiveWorkspaceId(): Promise<string | undefined> {
           [WORKSPACE_STORAGE_KEY]: firstActiveId
         })
       }
-    } catch (persistError) {
-      console.error(
-        "[Background] Failed to persist workspace selection:",
-        persistError
-      )
+    } catch {
+      // Failed to persist workspace selection
     }
 
     return firstActiveId
-  } catch (error) {
-    console.error("Error getting workspace ID:", error)
+  } catch {
     return undefined
   }
 }
@@ -484,12 +458,6 @@ async function handleLinearStatusCheck(): Promise<{
       }
     }
 
-    console.log("📡 Checking Linear status from background script...")
-    console.log(
-      "🔗 URL:",
-      `${pixzloWebUrl}/api/integrations/linear/status?workspaceId=${workspaceId}`
-    )
-
     const response = await fetch(
       `${pixzloWebUrl}/api/integrations/linear/status?workspaceId=${encodeURIComponent(workspaceId)}`,
       {
@@ -499,12 +467,6 @@ async function handleLinearStatusCheck(): Promise<{
         },
         credentials: "include"
       }
-    )
-
-    console.log("📡 Response status:", response.status)
-    console.log(
-      "📡 Response headers:",
-      Object.fromEntries(response.headers.entries())
     )
 
     if (response.status === 404) {
@@ -527,14 +489,12 @@ async function handleLinearStatusCheck(): Promise<{
     }
 
     const data = (await response.json()) as LinearStatusResponse
-    console.log("📡 Response data:", data)
 
     return {
       success: true,
       data
     }
   } catch (error) {
-    console.error("❌ Background Linear status check error:", error)
     return {
       success: false,
       error:
@@ -571,14 +531,6 @@ async function handleLinearCreateIssue(issueData: {
       }
     }
 
-    console.log("📡 Creating Linear issue from background script...")
-    console.log("📌 Using workspace ID:", workspaceId)
-    console.log(
-      "🔗 URL:",
-      `${pixzloWebUrl}/api/integrations/linear/create-issue`
-    )
-    console.log("📝 Issue data:", issueData)
-
     const response = await fetch(
       `${pixzloWebUrl}/api/integrations/linear/create-issue`,
       {
@@ -591,35 +543,24 @@ async function handleLinearCreateIssue(issueData: {
       }
     )
 
-    console.log("📡 Response status:", response.status)
-    console.log(
-      "📡 Response headers:",
-      Object.fromEntries(response.headers.entries())
-    )
-
     if (!response.ok) {
       let errorMessage = `HTTP ${response.status}: ${response.statusText}`
       try {
         const errorData = await response.json()
         errorMessage = errorData.error ?? errorMessage
-        console.error("📡 Error response body:", errorData)
-      } catch (parseError) {
-        console.error("📡 Failed to parse error response:", parseError)
-        const textError = await response.text()
-        console.error("📡 Error response text:", textError)
+      } catch {
+        // Failed to parse error response
       }
       throw new Error(errorMessage)
     }
 
     const data = (await response.json()) as LinearCreateIssueResponse
-    console.log("📡 Response data:", data)
 
     return {
       success: true,
       data
     }
   } catch (error) {
-    console.error("❌ Background Linear issue creation error:", error)
     return {
       success: false,
       error:
@@ -793,9 +734,6 @@ async function handleLinearFetchMetadata(): Promise<{
       }
     }
 
-    console.log("📡 Fetching Linear metadata from background script...")
-    console.log("📌 Using workspace ID:", workspaceId)
-
     const response = await fetch(
       `${pixzloWebUrl}/api/integrations/linear/metadata?workspaceId=${encodeURIComponent(workspaceId)}`,
       {
@@ -819,7 +757,6 @@ async function handleLinearFetchMetadata(): Promise<{
 
       if (response.status === 404) {
         // Linear integration not connected - this is a normal state, not an error
-        console.log("📡 Linear integration not connected")
         return {
           success: true,
           data: {
@@ -851,14 +788,11 @@ async function handleLinearFetchMetadata(): Promise<{
       }
     }
 
-    console.log("✅ Linear metadata fetched")
-
     return {
       success: true,
       data: result.data
     }
   } catch (error) {
-    console.error("❌ Background Linear metadata fetch error:", error)
     return {
       success: false,
       error:
@@ -896,13 +830,6 @@ async function handleFigmaFetchPreference(data: {
       }
     }
 
-    console.log(
-      "🎯 Fetching Figma preference for website:",
-      data.websiteUrl,
-      "workspace:",
-      workspaceId
-    )
-
     const url = new URL(`${PIXZLO_WEB_URL}/api/integrations/figma/preferences`)
     url.searchParams.set("websiteUrl", data.websiteUrl)
     url.searchParams.set("workspaceId", workspaceId)
@@ -931,14 +858,12 @@ async function handleFigmaFetchPreference(data: {
     }
 
     const result = await response.json()
-    console.log("✅ Figma preference fetched successfully:", result.preference)
 
     return {
       success: true,
       preference: result.preference
     }
   } catch (error) {
-    console.error("❌ Figma preference fetch error:", error)
     return {
       success: false,
       error:
@@ -973,8 +898,6 @@ async function handleLinearFetchPreference(): Promise<{
       }
     }
 
-    console.log("🎯 Fetching Linear preference for workspace:", workspaceId)
-
     const response = await fetch(
       `${PIXZLO_WEB_URL}/api/integrations/linear/preferences?workspaceId=${encodeURIComponent(workspaceId)}`,
       {
@@ -1002,14 +925,12 @@ async function handleLinearFetchPreference(): Promise<{
     }
 
     const result = await response.json()
-    console.log("✅ Linear preference fetched successfully:", result.preference)
 
     return {
       success: true,
       preference: result.preference
     }
   } catch (error) {
-    console.error("❌ Linear preference fetch error:", error)
     return {
       success: false,
       error:
@@ -1048,12 +969,6 @@ async function handleLinearUpdatePreference(data: {
       }
     }
 
-    console.log(
-      "🎯 Updating Linear preference for workspace:",
-      workspaceId,
-      data
-    )
-
     const response = await fetch(
       `${PIXZLO_WEB_URL}/api/integrations/linear/preferences`,
       {
@@ -1085,14 +1000,12 @@ async function handleLinearUpdatePreference(data: {
     }
 
     const result = await response.json()
-    console.log("✅ Linear preference updated successfully:", result.preference)
 
     return {
       success: true,
       preference: result.preference
     }
   } catch (error) {
-    console.error("❌ Linear preference update error:", error)
     return {
       success: false,
       error:
@@ -1254,7 +1167,6 @@ async function handleFigmaFetchMetadata(data: {
       data: result.data
     }
   } catch (error) {
-    console.error("❌ Figma metadata fetch error:", error)
     return {
       success: false,
       error:
@@ -1287,8 +1199,6 @@ async function handleFigmaUpdatePreference(data: {
           "No workspace selected. Open the Pixzlo extension popup and select a workspace."
       }
     }
-
-    console.log("🎯 Updating Figma preference for workspace:", workspaceId)
 
     const response = await fetch(
       `${PIXZLO_WEB_URL}/api/integrations/figma/preferences`,
@@ -1323,7 +1233,6 @@ async function handleFigmaUpdatePreference(data: {
     // After updating the preference retrieve metadata again
     return handleFigmaFetchMetadata({ websiteUrl: data.websiteUrl })
   } catch (error) {
-    console.error("❌ Figma preference update error:", error)
     return {
       success: false,
       error:
@@ -1388,7 +1297,6 @@ async function handleFigmaCreateDesignLink(data: {
     // so that subsequent metadata fetches return the newly created design link
     return handleFigmaFetchMetadata({ websiteUrl, force: true })
   } catch (error) {
-    console.error("❌ Figma create design link error:", error)
     return {
       success: false,
       error:
@@ -1436,7 +1344,6 @@ async function handleFigmaDeleteDesignLink(data: {
     // IMPORTANT: pass force: true to clear background cache after deleting link
     return handleFigmaFetchMetadata({ websiteUrl, force: true })
   } catch (error) {
-    console.error("❌ Figma delete design link error:", error)
     return {
       success: false,
       error:
@@ -1457,25 +1364,19 @@ async function checkExtensionPinnedState(): Promise<boolean> {
   try {
     const settings = await chrome.action.getUserSettings()
     return settings.isOnToolbar
-  } catch (error) {
-    console.error("[Pixzlo] Failed to check pinned state:", error)
+  } catch {
     return false
   }
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  console.log("🔧 Background received message:", message)
-
   // Handle extension pinned state check
   if (message.type === "GET_PINNED_STATE") {
-    console.log("📌 Checking extension pinned state...")
     checkExtensionPinnedState()
       .then((isPinned) => {
-        console.log("📌 Extension pinned state:", isPinned)
         sendResponse({ success: true, isPinned })
       })
       .catch((error) => {
-        console.error("❌ Failed to check pinned state:", error)
         sendResponse({
           success: false,
           error: error instanceof Error ? error.message : "Unknown error"
@@ -1521,7 +1422,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     handleLinearStatusCheckCached()
       .then(sendResponse)
       .catch((error) => {
-        console.error("❌ Linear status check failed:", error)
         sendResponse({
           success: false,
           error: error instanceof Error ? error.message : "Unknown error"
@@ -1535,7 +1435,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     handleLinearCreateIssue(message.data)
       .then(sendResponse)
       .catch((error) => {
-        console.error("❌ Linear issue creation failed:", error)
         sendResponse({
           success: false,
           error: error instanceof Error ? error.message : "Unknown error"
@@ -1549,7 +1448,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     handleLinearFetchMetadata()
       .then(sendResponse)
       .catch((error) => {
-        console.error("❌ Linear metadata fetch failed:", error)
         sendResponse({
           success: false,
           error: error instanceof Error ? error.message : "Unknown error"
@@ -1562,7 +1460,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     handleLinearFetchMetadata()
       .then(sendResponse)
       .catch((error) => {
-        console.error("❌ Linear metadata fetch failed:", error)
         sendResponse({
           success: false,
           error: error instanceof Error ? error.message : "Unknown error"
@@ -1573,7 +1470,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   // Handle fetching pages tree for hierarchical page selection
   if (message.type === "FETCH_PAGES_TREE") {
-    console.log("Background script - Fetching pages tree")
     ;(async () => {
       try {
         // Get workspace ID from storage - pages are workspace-scoped
@@ -1615,7 +1511,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           data: data
         })
       } catch (error) {
-        console.error("Background script - Pages tree fetch error:", error)
         sendResponse({
           success: false,
           error:
@@ -1630,14 +1525,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "FIGMA_API_CALL") {
-    console.log("Background script - Figma API call requested:", message.method)
-
     if (message.method === "GET_FILE") {
       const fileId = message.fileId
 
       ;(async () => {
         try {
-          console.log("Background script - Fetching Figma file directly")
           const figmaData = await fetchFigmaFileDirect(fileId)
 
           const documentNode = figmaData?.nodes
@@ -1663,7 +1555,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             }
           })
         } catch (error) {
-          console.error("Background script - Figma API error:", error)
           sendResponse({
             success: false,
             error:
@@ -1679,11 +1570,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "FIGMA_RENDER_FRAME") {
-    console.log(
-      "Background script - Figma frame render requested:",
-      message.figmaUrl
-    )
-
     const { figmaUrl } = message
 
     // Parse Figma URL to extract file ID and node ID
@@ -1697,9 +1583,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 
     const { fileId, nodeId } = parsed
-    console.log(
-      `Background script - Extracted fileId: ${fileId}, nodeId: ${nodeId}`
-    )
 
     if (!nodeId) {
       sendResponse({
@@ -1715,18 +1598,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     if (cachedFrame) {
       if (cachedFrame.expiresAt > now) {
-        console.log(
-          "Background script - Using cached frame render result for:",
-          cacheKey
-        )
         try {
           sendResponse({
             success: true,
             data: cachedFrame.data
           })
-          console.log("✅ BACKGROUND: Response sent successfully (cached)")
-        } catch (error) {
-          console.error("❌ BACKGROUND: Error sending cached response:", error)
+        } catch {
+          // Error sending cached response
         }
         return true
       }
@@ -1736,16 +1614,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     let frameRequest = inFlightFrameRenderRequests.get(cacheKey)
 
-    if (frameRequest) {
-      console.log(
-        "Background script - Reusing in-flight frame render for:",
-        cacheKey
-      )
-    } else {
+    if (!frameRequest) {
       frameRequest = (async () => {
-        console.log(
-          "Background script - Getting file data directly from Figma..."
-        )
         const figmaData = await fetchFigmaFileDirect(fileId)
 
         const documentNode = figmaData?.nodes
@@ -1763,26 +1633,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           throw new Error(`Frame with node-id ${nodeId} not found in file`)
         }
 
-        console.log("Background script - Found frame:", frameData.name)
-
         // Extract all elements from the frame
         const elements = extractElementsFromNode(frameData, nodeId)
-        console.log(
-          `Background script - Found ${elements.length} elements in frame`
-        )
-
-        // 🔍 DEBUG: Log frameData before sending to frontend
-        console.log("🔍 BACKGROUND: frameData being sent to frontend:", {
-          id: frameData.id,
-          name: frameData.name,
-          type: frameData.type,
-          hasAbsoluteBoundingBox: !!frameData.absoluteBoundingBox
-        })
 
         // Render the frame as an image
-        console.log("🔍 BACKGROUND: Starting to render frame image...")
         const imageUrl = await renderFigmaNode(fileId, nodeId)
-        console.log("🔍 BACKGROUND: Frame image rendered, URL:", imageUrl)
 
         const responseData: FrameRenderResponse = {
           fileId,
@@ -1792,11 +1647,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           imageUrl,
           fileName: figmaData.name
         }
-
-        console.log("🔍 BACKGROUND: Sending complete response with imageUrl:", {
-          hasImageUrl: !!responseData.imageUrl,
-          imageUrlLength: responseData.imageUrl?.length || 0
-        })
 
         frameRenderResultCache.set(cacheKey, {
           data: responseData,
@@ -1816,24 +1666,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             success: true,
             data: responseData
           })
-          console.log("✅ BACKGROUND: Response sent successfully")
-        } catch (error) {
-          console.error("❌ BACKGROUND: Error sending response:", error)
+        } catch {
+          // Error sending response
         }
       })
       .catch((error) => {
         frameRenderResultCache.delete(cacheKey)
-        console.error("Background script - Frame render error:", error)
         try {
           sendResponse({
             success: false,
             error: error.message || "Failed to render Figma frame"
           })
-        } catch (sendError) {
-          console.error(
-            "❌ BACKGROUND: Error sending failure response:",
-            sendError
-          )
+        } catch {
+          // Error sending failure response
         }
       })
       .finally(() => {
@@ -1844,19 +1689,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "FIGMA_RENDER_ELEMENT") {
-    console.log(
-      "Background script - Figma element render requested:",
-      message.fileId,
-      message.nodeId
-    )
-
     const { fileId, nodeId } = message
 
     // Defensive check for undefined nodeId
     if (!nodeId) {
-      console.error(
-        "❌ Background script error: Received a request to render an element with an undefined nodeId."
-      )
       sendResponse({
         success: false,
         error: "Render failed: Node ID was undefined."
@@ -1866,8 +1702,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     renderFigmaNode(fileId, nodeId)
       .then((imageUrl) => {
-        console.log("Background script - Got element image URL:", imageUrl)
-
         sendResponse({
           success: true,
           data: {
@@ -1878,7 +1712,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         })
       })
       .catch((error) => {
-        console.error("Background script - Element render error:", error)
         sendResponse({
           success: false,
           error: error.message || "Failed to render element"
@@ -1889,8 +1722,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "FETCH_IMAGE_DATA_URL") {
-    console.log("📥 Background fetching image data URL:", message.url)
-
     fetch(message.url)
       .then((response) => {
         if (!response.ok) {
@@ -1917,14 +1748,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           })
       )
       .then((dataUrl) => {
-        console.log("✅ Background image fetch successful")
         sendResponse({
           success: true,
           dataUrl
         })
       })
       .catch((error) => {
-        console.error("❌ Background image fetch error:", error)
         sendResponse({
           success: false,
           error: error instanceof Error ? error.message : "Unknown error"
@@ -1935,11 +1764,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "CAPTURE_ELEMENT_SCREENSHOT") {
-    console.log(
-      "Background script - Screenshot capture requested:",
-      message.area
-    )
-
     try {
       // Capture the visible tab (like @reviewit)
       chrome.tabs.captureVisibleTab(
@@ -1949,16 +1773,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         },
         (dataUrl) => {
           if (chrome.runtime.lastError) {
-            console.error(
-              "Screenshot capture failed:",
-              chrome.runtime.lastError
-            )
             sendResponse({
               success: false,
               error: chrome.runtime.lastError.message
             })
           } else {
-            console.log("✅ Screenshot captured successfully")
             // Send the screenshot back to content script for cropping (like @reviewit)
             sendResponse({
               success: true,
@@ -1969,7 +1788,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
       )
     } catch (error) {
-      console.error("Screenshot capture error:", error)
       sendResponse({
         success: false,
         error: error.message || "Failed to capture screenshot"
@@ -1980,17 +1798,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "FIGMA_GET_IMAGE") {
-    console.log(
-      "Background script - Figma image requested for:",
-      message.nodeId
-    )
-
     const { fileId, nodeId } = message
 
     renderFigmaNode(fileId, nodeId)
       .then((imageUrl) => {
-        console.log("Background script - Got Figma node image URL:", imageUrl)
-
         sendResponse({
           success: true,
           data: {
@@ -1999,7 +1810,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         })
       })
       .catch((error) => {
-        console.error("Background script - Image fetch error:", error)
         sendResponse({
           success: false,
           error: error.message || "Failed to fetch image"
@@ -2010,8 +1820,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "FIGMA_OAUTH") {
-    console.log("Background script - Figma OAuth requested")
-
     // Get auth URL and launch OAuth immediately for speed
     const startTime = Date.now()
 
@@ -2029,7 +1837,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             "No workspace selected. Open the Pixzlo extension popup and select a workspace."
           )
         }
-        console.log("[Background] Figma OAuth using workspace:", workspaceId)
         return fetch(`${PIXZLO_WEB_URL}/api/integrations/figma/auth`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -2038,9 +1845,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         })
     })
       .then(async (response) => {
-        const elapsed = Date.now() - startTime
-        console.log(`Background script - Got auth URL in ${elapsed}ms`)
-
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
         const data = await response.json()
         return data.authUrl
@@ -2074,10 +1878,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               tab: chrome.tabs.Tab
             ) => {
               if (tab.windowId === authWindow.id && tab.url) {
-                console.log(
-                  `Background script - Figma OAuth tab updated: ${tab.url}`
-                )
-
                 // Check if this is a Figma OAuth completion URL
                 // We check for both the settings pages and the figma-callback page
                 const url = tab.url.toLowerCase()
@@ -2093,18 +1893,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                   url.includes("/figma-callback") && url.includes("code=")
 
                 if (isFigmaCallbackWithCode) {
-                  console.log(
-                    "Background script - Figma OAuth code received, waiting for redirect..."
-                  )
                   return
                 }
 
                 if (isSettingsPage && hasResultParam) {
-                  const totalTime = Date.now() - startTime
-                  console.log(
-                    `Background script - Figma OAuth completed in ${totalTime}ms. URL: ${tab.url}`
-                  )
-
                   // Clean up listeners
                   chrome.tabs.onUpdated.removeListener(onTabUpdated)
                   chrome.windows.onRemoved.removeListener(onWindowRemoved)
@@ -2118,13 +1910,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                   const errorParam = urlObj.searchParams.get("error")
 
                   if (successParam) {
-                    console.log(`Figma OAuth success: ${successParam}`)
                     figmaMetadataCache.data = undefined
                     figmaMetadataCache.expiresAt = undefined
                     clearTokenCache()
                     sendResponse({ success: true })
                   } else if (errorParam) {
-                    console.log(`Figma OAuth error: ${errorParam}`)
                     sendResponse({
                       success: false,
                       error: decodeURIComponent(errorParam)
@@ -2138,9 +1928,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 } else if (isSettingsPage && !hasResultParam) {
                   // Settings page loaded but no result params - might have been cleared
                   // Check if we have a success message visible (page loaded after redirect)
-                  console.log(
-                    "Background script - Settings page loaded without result params, checking status..."
-                  )
 
                   // Give a brief moment for the page to process, then assume success
                   // if we navigated from figma-callback to settings
@@ -2153,9 +1940,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     chrome.windows.remove(authWindow.id)
 
                     // Assume success since we made it to settings page
-                    console.log(
-                      "Figma OAuth - assuming success (settings page reached)"
-                    )
                     figmaMetadataCache.data = undefined
                     figmaMetadataCache.expiresAt = undefined
                     clearTokenCache()
@@ -2183,7 +1967,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         )
       })
       .catch((error) => {
-        console.error("Background script - OAuth failed:", error)
         sendResponse({
           success: false,
           error: error.message || "Failed to setup OAuth"
@@ -2216,8 +1999,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const { endpoint, options } = message
     const url = `${PIXZLO_WEB_URL}${endpoint}`
 
-    console.log("Background script - Making API call:", url, options)
-
     fetch(url, {
       method: options.method || "GET",
       headers: {
@@ -2240,11 +2021,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
 
         const data = await response.json()
-        console.log("Background script - API response:", data)
         sendResponse({ success: true, data })
       })
       .catch((error) => {
-        console.error("Background script - API call error:", error)
         sendResponse({
           success: false,
           error: error.message || "Network error"
@@ -2258,11 +2037,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     fetch("https://jsonplaceholder.typicode.com/posts/1")
       .then((response) => response.json())
       .then((data) => {
-        console.log("Background script - Dummy API response:", data)
         sendResponse({ success: true, data })
       })
       .catch((error) => {
-        console.error("Background script - Error calling dummy API:", error)
         sendResponse({ success: false, error: error.message })
       })
     return true
@@ -2273,9 +2050,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     ;(async () => {
       try {
         const payload = message.payload || {}
-        console.log(
-          "📡 Using batch create endpoint for faster issue creation..."
-        )
 
         // Helper functions
         const sanitizeDim = (value) => {
@@ -2303,7 +2077,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             "No workspace selected. Open the Pixzlo extension popup and select a workspace."
           )
         }
-        console.log("📌 Using workspace ID:", workspaceId)
 
         // Prepare batch create request
         const websiteUrl = payload?.metadata?.url
@@ -2353,8 +2126,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 order_index: 2
               })
             }
-          } catch (e) {
-            console.warn("Failed to fetch Figma image:", e)
+          } catch {
+            // Failed to fetch Figma image
           }
         }
 
@@ -2403,11 +2176,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             : undefined
         }
 
-        console.log("📤 Sending batch create request...")
-        console.log("🔍 Batch body:", JSON.stringify(batchBody, null, 2))
-        console.log("🔍 Figma link data:", batchBody.figma_link_data)
-        console.log("🔍 Linear options:", batchBody.linear_options)
-
         // Single batch create call
         const batchRes = await fetch(
           `${PIXZLO_WEB_URL}/api/issues/batch-create`,
@@ -2434,10 +2202,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           throw new Error("No issue ID returned from batch create")
         }
 
-        console.log("✅ Issue created successfully:", issueUrl)
         sendResponse({ success: true, data: { issueId, issueUrl } })
       } catch (error) {
-        console.error("Background script - SUBMIT_ISSUE error:", error)
         sendResponse({
           success: false,
           error: error?.message || "Submit failed"
@@ -2452,7 +2218,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     handleFigmaFetchPreference(message.data)
       .then(sendResponse)
       .catch((error) => {
-        console.error("❌ Figma preference fetch failed:", error)
         sendResponse({
           success: false,
           error: error instanceof Error ? error.message : "Unknown error"
@@ -2466,7 +2231,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     handleFigmaUpdatePreference(message.data)
       .then(sendResponse)
       .catch((error) => {
-        console.error("❌ Figma preference update failed:", error)
         sendResponse({
           success: false,
           error: error instanceof Error ? error.message : "Unknown error"
@@ -2480,7 +2244,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     handleLinearFetchPreference()
       .then(sendResponse)
       .catch((error) => {
-        console.error("❌ Linear preference fetch failed:", error)
         sendResponse({
           success: false,
           error: error instanceof Error ? error.message : "Unknown error"
@@ -2494,7 +2257,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     handleLinearUpdatePreference(message.data)
       .then(sendResponse)
       .catch((error) => {
-        console.error("❌ Linear preference update failed:", error)
         sendResponse({
           success: false,
           error: error instanceof Error ? error.message : "Unknown error"
@@ -2507,7 +2269,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     handleFigmaFetchMetadata(message.data || {})
       .then(sendResponse)
       .catch((error) => {
-        console.error("❌ Figma metadata fetch failed:", error)
         sendResponse({
           success: false,
           error: error instanceof Error ? error.message : "Unknown error"
@@ -2520,7 +2281,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     handleFigmaCreateDesignLink(message.data)
       .then(sendResponse)
       .catch((error) => {
-        console.error("❌ Figma design link creation failed:", error)
         sendResponse({
           success: false,
           error: error instanceof Error ? error.message : "Unknown error"
@@ -2533,7 +2293,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     handleFigmaDeleteDesignLink(message.data)
       .then(sendResponse)
       .catch((error) => {
-        console.error("❌ Figma design link deletion failed:", error)
         sendResponse({
           success: false,
           error: error instanceof Error ? error.message : "Unknown error"
@@ -2547,15 +2306,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 if (typeof chrome !== "undefined" && chrome.storage?.onChanged) {
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName === "local" && changes[WORKSPACE_STORAGE_KEY]) {
-      const oldValue = changes[WORKSPACE_STORAGE_KEY].oldValue as
-        | string
-        | undefined
-      const newValue = changes[WORKSPACE_STORAGE_KEY].newValue as
-        | string
-        | undefined
-      console.log(
-        `[Background] 🔄 Workspace changed in storage: ${oldValue} → ${newValue}`
-      )
       // Workspace changed => clear workspace-scoped caches/tokens so we don't use
       // a token from the previous workspace.
       clearTokenCache()

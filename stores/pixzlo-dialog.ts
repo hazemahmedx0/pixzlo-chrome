@@ -175,12 +175,6 @@ export const usePixzloDialogStore = create<PixzloDialogState>((set, get) => ({
 
   // Complex Actions
   openDialog: (screenshots: Screenshot[], selectedElement?: HTMLElement) => {
-    console.log("🏪 Store openDialog called with:", {
-      screenshotsLength: screenshots.length,
-      selectedElement: selectedElement?.tagName,
-      firstScreenshot: screenshots[0]?.type
-    })
-
     const currentScreenshot = screenshots[0]
     const isElementCapture = currentScreenshot?.type === "element"
     const showStylingTab = isElementCapture
@@ -192,8 +186,6 @@ export const usePixzloDialogStore = create<PixzloDialogState>((set, get) => ({
       activeTab: showStylingTab ? "styling" : "info",
       activeImageIndex: 0
     })
-
-    console.log("✅ Store state updated - dialog should be open")
 
     // Initialize all properties as selected after a short delay to ensure extractedCSS is set
     setTimeout(() => {
@@ -212,9 +204,6 @@ export const usePixzloDialogStore = create<PixzloDialogState>((set, get) => ({
   },
 
   closeDialog: () => {
-    console.log(
-      "🔍 DEBUG: Store closeDialog called - resetting all dialog state"
-    )
     set({
       isOpen: false,
       screenshots: [],

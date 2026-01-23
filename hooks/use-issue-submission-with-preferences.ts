@@ -5,6 +5,7 @@ import { useLinearDataStore } from "@/stores/linear-data"
 import { usePixzloDialogStore } from "@/stores/pixzlo-dialog"
 import type { IssueData } from "@/types/capture"
 import { useCallback, useState } from "react"
+import { toast } from "@/components/ui/sonner"
 
 interface UseIssueSubmissionReturn {
   handleSubmit: () => void
@@ -23,7 +24,8 @@ export const useIssueSubmissionWithPreferences = (
     projects?: { id: string; label: string }
     users?: { id: string; label: string }
     workflowStates?: { id: string; label: string }
-  }
+  },
+  onIssueCreated?: () => void
 ): UseIssueSubmissionReturn => {
   const { createIssueData } = usePixzloDialogStore()
   const { currentFrame } = useFigmaToolbarStore()
@@ -35,15 +37,6 @@ export const useIssueSubmissionWithPreferences = (
     try {
       const currentWebsiteUrl = window.location.href
 
-      // Debug logging for Figma frame state
-      console.log("🔍 DEBUG: Current frame state:", {
-        currentFrame,
-        websiteUrl: currentWebsiteUrl,
-        frameId: currentFrame?.id,
-        frameName: currentFrame?.name,
-        fileId: currentFrame?.fileId
-      })
-
       const shouldUpdateFigmaPreference =
         currentFrame &&
         currentWebsiteUrl &&
@@ -51,8 +44,6 @@ export const useIssueSubmissionWithPreferences = (
           existingFigmaPreference.lastUsedFrameId !== currentFrame.id)
 
       if (shouldUpdateFigmaPreference) {
-        console.log("🎯 Saving Figma frame preference:", currentFrame.name)
-
         try {
           const response = await new Promise<{
             success: boolean
@@ -84,14 +75,8 @@ export const useIssueSubmissionWithPreferences = (
               }
             )
           })
-
-          if (response.success) {
-            console.log("✅ Figma frame preference saved")
-          } else {
-            console.error("❌ Failed to save Figma preference:", response.error)
-          }
-        } catch (error) {
-          console.error("❌ Error saving Figma preference:", error)
+        } catch {
+          // Error saving Figma preference
         }
       }
 
@@ -123,10 +108,8 @@ export const useIssueSubmissionWithPreferences = (
         }
 
         if (Object.keys(linearPreferenceData).length > 0) {
-          console.log("🎯 Saving Linear preferences:", linearPreferenceData)
-
           try {
-            const response = await new Promise<{
+            await new Promise<{
               success: boolean
               error?: string
             }>((resolve) => {
@@ -149,22 +132,13 @@ export const useIssueSubmissionWithPreferences = (
                 }
               )
             })
-
-            if (response.success) {
-              console.log("✅ Linear preferences saved")
-            } else {
-              console.error(
-                "❌ Failed to save Linear preferences:",
-                response.error
-              )
-            }
-          } catch (error) {
-            console.error("❌ Error saving Linear preferences:", error)
+          } catch {
+            // Error saving Linear preferences
           }
         }
       }
-    } catch (error) {
-      console.error("❌ Error in preference saving:", error)
+    } catch {
+      // Error in preference saving
       // Don't block issue creation if preference saving fails
     }
   }, [
@@ -180,7 +154,6 @@ export const useIssueSubmissionWithPreferences = (
 
     const issueData = createIssueData()
     if (!issueData) {
-      console.error("Failed to create issue data")
       setIsSubmitting(false)
       return
     }
@@ -361,16 +334,11 @@ export const useIssueSubmissionWithPreferences = (
             error?: string
           }) => {
             if (chrome.runtime.lastError) {
-              console.error(
-                "Background message error:",
-                chrome.runtime.lastError.message
-              )
               onSubmit?.(issueData)
               setIsSubmitting(false)
               return
             }
             if (!response?.success) {
-              console.error("Issue submission failed:", response?.error)
               onSubmit?.(issueData)
               setIsSubmitting(false)
               return
@@ -380,28 +348,23 @@ export const useIssueSubmissionWithPreferences = (
               navigator.clipboard
                 ?.writeText(url)
                 .then(() => {
-                  console.log("✅ Issue URL copied to clipboard:", url)
-                  // Show success feedback to user
-                  alert(
-                    "✅ Issue created successfully! URL copied to clipboard."
-                  )
+                  toast.success("Issue created successfully!", {
+                    description: "URL copied to clipboard"
+                  })
                 })
-                .catch((err) => {
-                  console.error("Failed to copy URL to clipboard:", err)
-                  // Show URL to user if clipboard fails
-                  alert(`✅ Issue created successfully! URL: ${url}`)
+                .catch(() => {
+                  toast.success("Issue created successfully!")
                 })
             } else {
-              console.log("✅ Issue created successfully (no URL returned)")
-              alert("✅ Issue created successfully!")
+              toast.success("Issue created successfully!")
             }
 
-            // Don't call onSubmit here as it might close the dialog
-            // Let the user close the dialog manually after seeing the success message
-            console.log(
-              "🔍 Issue submission completed - dialog remains open for user"
-            )
             setIsSubmitting(false)
+
+            // Close dialog but keep extension active for more selections
+            if (onIssueCreated) {
+              onIssueCreated()
+            }
           }
         )
       })()
@@ -413,7 +376,7 @@ export const useIssueSubmissionWithPreferences = (
       onSubmit?.(issueData)
       setIsSubmitting(false)
     })
-  }, [onSubmit, createIssueData, savePreferences, isSubmitting])
+  }, [onSubmit, createIssueData, savePreferences, isSubmitting, onIssueCreated])
 
   return { handleSubmit, isSubmitting }
 }

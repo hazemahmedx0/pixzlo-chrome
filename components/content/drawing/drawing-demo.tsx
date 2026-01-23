@@ -35,15 +35,13 @@ const DrawingDemo = memo(() => {
         imageUrl="/api/placeholder/800/600"
         width={window.innerWidth}
         height={window.innerHeight}
-        onElementsChange={(elements) => {
-          console.log("Canvas elements changed:", elements.length)
-        }}
+        onElementsChange={() => {}}
       />
 
       {/* Usage instructions */}
       <div className="absolute bottom-4 left-4 z-10 max-w-sm rounded-lg border border-blue-300 bg-blue-50 p-3">
         <h4 className="mb-2 text-sm font-bold text-blue-800">
-          ✅ Working Implementation
+          Working Implementation
         </h4>
         <div className="space-y-1 text-xs text-blue-700">
           <div>• Uses React state for visual elements</div>

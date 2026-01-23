@@ -25,18 +25,9 @@ export async function createPaddedAspectRatioImage({
         return reject(new Error("Failed to get canvas context"))
       }
 
-      console.log("🎨 CROP DEBUG: Input data:", {
-        imageSize: { width: img.width, height: img.height },
-        frameBoundingBox,
-        elementBoundingBox,
-        padding
-      })
-
       // Calculate scale factor between Figma coordinates and rendered image
       const scaleX = img.width / frameBoundingBox.width
       const scaleY = img.height / frameBoundingBox.height
-
-      console.log("🎨 CROP DEBUG: Scale factors:", { scaleX, scaleY })
 
       // Calculate the crop area in image pixel coordinates
       const elementRelativeX = elementBoundingBox.x - frameBoundingBox.x
@@ -52,13 +43,6 @@ export async function createPaddedAspectRatioImage({
         img.height - sourceY,
         (elementBoundingBox.height + padding * 2) * scaleY
       )
-
-      console.log("🎨 CROP DEBUG: Source crop area (image pixels):", {
-        sourceX,
-        sourceY,
-        sourceWidth,
-        sourceHeight
-      })
 
       // Define 16:9 aspect ratio dimensions
       const aspectRatio = 16 / 9
@@ -92,13 +76,6 @@ export async function createPaddedAspectRatioImage({
       const drawX = (canvas.width - drawWidth) / 2
       const drawY = (canvas.height - drawHeight) / 2
 
-      console.log("🎨 CROP DEBUG: Final draw area:", {
-        drawX,
-        drawY,
-        drawWidth,
-        drawHeight
-      })
-
       // Draw the cropped and scaled image onto the 16:9 canvas
       ctx.drawImage(
         img,
@@ -112,14 +89,11 @@ export async function createPaddedAspectRatioImage({
         drawHeight
       )
 
-      console.log("🎨 CROP DEBUG: Image cropping completed successfully")
-
       // Convert to data URL
       resolve(canvas.toDataURL("image/png"))
     }
 
     img.onerror = () => {
-      console.error("Failed to load image for processing:", imageUrl)
       // Fallback to the original URL if processing fails
       resolve(imageUrl)
     }
@@ -144,7 +118,6 @@ async function fetchImageDataUrl(sourceImageUrl: string): Promise<string> {
   // Prefer background script fetch to bypass CORS (requires host permissions)
   if (typeof chrome !== "undefined" && chrome.runtime?.sendMessage) {
     try {
-      console.log("🔄 Requesting background fetch for image...")
       const response = await new Promise<{
         success?: boolean
         dataUrl?: string
@@ -171,21 +144,14 @@ async function fetchImageDataUrl(sourceImageUrl: string): Promise<string> {
       })
 
       if (response?.success && response.dataUrl) {
-        console.log("✅ Background fetch succeeded")
         return response.dataUrl as string
       }
-
-      console.warn(
-        "⚠️ Background fetch failed, falling back to direct fetch:",
-        response?.error
-      )
-    } catch (error) {
-      console.warn("⚠️ Background fetch threw error, falling back:", error)
+    } catch {
+      // Background fetch failed, falling back to direct fetch
     }
   }
 
   // Fallback: direct fetch (may still fail due to CORS)
-  console.log("🔍 Falling back to direct fetch...")
   const fallbackResponse = await fetch(sourceImageUrl, { mode: "cors" })
   if (!fallbackResponse.ok) {
     throw new Error(
@@ -235,27 +201,11 @@ export async function cropImageFromSource(
         const scaleX = img.width / displayedWidth
         const scaleY = img.height / displayedHeight
 
-        console.log("🔍 cropImageFromSource: Scale factors:", {
-          imageSize: { width: img.width, height: img.height },
-          displayedSize: { width: displayedWidth, height: displayedHeight },
-          scale: { x: scaleX, y: scaleY }
-        })
-
         // Convert crop area from displayed coordinates to actual image coordinates
         const sourceX = cropArea.x * scaleX
         const sourceY = cropArea.y * scaleY
         const sourceWidth = cropArea.width * scaleX
         const sourceHeight = cropArea.height * scaleY
-
-        console.log("🔍 cropImageFromSource: Crop area:", {
-          displayed: cropArea,
-          actual: {
-            x: sourceX,
-            y: sourceY,
-            width: sourceWidth,
-            height: sourceHeight
-          }
-        })
 
         // Set canvas to the crop size
         canvas.width = sourceWidth
@@ -275,19 +225,16 @@ export async function cropImageFromSource(
         )
 
         const croppedDataUrl = canvas.toDataURL("image/png")
-        console.log("✅ cropImageFromSource: Crop complete")
         resolve(croppedDataUrl)
       }
 
       img.onerror = () => {
-        console.error("❌ Failed to load image for cropping")
         reject(new Error("Failed to load source image"))
       }
 
       img.src = imageDataUrl
     })
   } catch (error) {
-    console.error("❌ Error fetching image:", error)
     throw new Error(
       `Failed to fetch image: ${error instanceof Error ? error.message : "Unknown error"}`
     )
@@ -390,7 +337,6 @@ export async function convertTo16x9WithPadding(
     }
 
     img.onerror = () => {
-      console.error("Failed to load image for 16:9 conversion:", imageUrl)
       resolve(imageUrl) // Fallback to original
     }
 

@@ -114,7 +114,6 @@ export const useCompositeImage = (
       setCompositeImageUrl(dataUrl)
       lastProcessedImageRef.current = originalImageUrl
     } catch (err) {
-      console.error("Failed to create composite image:", err)
       setError(err instanceof Error ? err.message : "Unknown error")
       setCompositeImageUrl(null)
     } finally {

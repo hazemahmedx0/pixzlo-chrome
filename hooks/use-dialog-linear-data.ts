@@ -13,7 +13,6 @@ export function useDialogIntegrationData(): void {
 
   useEffect(() => {
     if (isOpen && !hasFetchedRef.current) {
-      console.log("🚀 Dialog opened - fetching integration data...")
       hasFetchedRef.current = true
 
       // Always check status when dialog opens (ignore cache for freshness)

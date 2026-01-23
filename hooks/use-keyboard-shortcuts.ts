@@ -41,23 +41,15 @@ export const useKeyboardShortcuts = (
         switch (event.key.toLowerCase()) {
           case "z": {
             event.preventDefault()
-            console.log("Undo shortcut pressed. Can undo:", canUndo())
             if (canUndo()) {
-              console.log("Executing undo...")
               undo()
-            } else {
-              console.log("Cannot undo - no history available")
             }
             break
           }
           case "y": {
             event.preventDefault()
-            console.log("Redo shortcut pressed. Can redo:", canRedo())
             if (canRedo()) {
-              console.log("Executing redo...")
               redo()
-            } else {
-              console.log("Cannot redo - no history available")
             }
             break
           }

@@ -94,7 +94,6 @@ const FloatingToolbar = memo(
             onClick={(e) => {
               e.stopPropagation()
               window.dispatchEvent(new Event("pixzlo-toolbar-click"))
-              console.log("🖱️ Pointer button clicked", e.target)
               onModeChange("pointer")
             }}>
             <CursorIcon
@@ -117,7 +116,6 @@ const FloatingToolbar = memo(
             onClick={(e) => {
               e.stopPropagation()
               window.dispatchEvent(new Event("pixzlo-toolbar-click"))
-              console.log("🖱️ Element button clicked", e.target)
               onModeChange("element")
             }}>
             <BugIcon
@@ -140,7 +138,6 @@ const FloatingToolbar = memo(
             onClick={(e) => {
               e.stopPropagation()
               window.dispatchEvent(new Event("pixzlo-toolbar-click"))
-              console.log("🖱️ Area button clicked", e.target)
               if (activeMode === "area") {
                 onCapture()
               } else {
@@ -169,7 +166,6 @@ const FloatingToolbar = memo(
             onClick={(e) => {
               e.stopPropagation()
               window.dispatchEvent(new Event("pixzlo-toolbar-click"))
-              console.log("🖱️ Fullscreen button clicked", e.target)
               if (activeMode === "fullscreen") {
                 onCapture()
               } else {
@@ -192,7 +188,6 @@ const FloatingToolbar = memo(
             onClick={(e) => {
               e.stopPropagation()
               window.dispatchEvent(new Event("pixzlo-toolbar-click"))
-              console.log("🖱️ Close button clicked", e.target)
               onClose()
             }}>
             <XIcon size={18} />

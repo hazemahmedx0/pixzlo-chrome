@@ -23,8 +23,6 @@ export const useDrawingHistory = (initialElements: DrawingElement[] = []) => {
   const historyStep = useRef(0)
 
   const saveToHistory = useCallback((newElements: DrawingElement[]) => {
-    console.log("Saving to history:", newElements.length, "elements")
-
     // Remove all states after current step
     history.current = history.current.slice(0, historyStep.current + 1)
 
@@ -33,35 +31,17 @@ export const useDrawingHistory = (initialElements: DrawingElement[] = []) => {
     history.current = history.current.concat([newHistoryEntry])
     historyStep.current += 1
 
-    console.log(
-      "History now has",
-      history.current.length,
-      "states, at step",
-      historyStep.current
-    )
-
     // Update visual state
     setElements(newElements)
   }, [])
 
   const undo = useCallback(() => {
-    console.log("Undo called - current step:", historyStep.current)
-
     if (historyStep.current === 0) {
-      console.log("Cannot undo - at beginning")
       return false
     }
 
     historyStep.current -= 1
     const previous = history.current[historyStep.current]
-
-    console.log(
-      "Undoing to step",
-      historyStep.current,
-      "with",
-      previous.elements.length,
-      "elements"
-    )
 
     // Update visual state - this triggers React re-render
     setElements([...previous.elements])
@@ -70,28 +50,12 @@ export const useDrawingHistory = (initialElements: DrawingElement[] = []) => {
   }, [])
 
   const redo = useCallback(() => {
-    console.log(
-      "Redo called - current step:",
-      historyStep.current,
-      "max:",
-      history.current.length - 1
-    )
-
     if (historyStep.current === history.current.length - 1) {
-      console.log("Cannot redo - at end")
       return false
     }
 
     historyStep.current += 1
     const next = history.current[historyStep.current]
-
-    console.log(
-      "Redoing to step",
-      historyStep.current,
-      "with",
-      next.elements.length,
-      "elements"
-    )
 
     // Update visual state - this triggers React re-render
     setElements([...next.elements])
@@ -108,7 +72,6 @@ export const useDrawingHistory = (initialElements: DrawingElement[] = []) => {
   }, [])
 
   const resetHistory = useCallback(() => {
-    console.log("Resetting history")
     const emptyElements: DrawingElement[] = []
     history.current = [{ elements: emptyElements }]
     historyStep.current = 0
@@ -118,7 +81,6 @@ export const useDrawingHistory = (initialElements: DrawingElement[] = []) => {
 
   const addElement = useCallback(
     (element: DrawingElement) => {
-      console.log("Adding element:", element.type, element.id)
       const newElements = [...elements, element]
       saveToHistory(newElements)
     },
@@ -127,7 +89,6 @@ export const useDrawingHistory = (initialElements: DrawingElement[] = []) => {
 
   const updateElement = useCallback(
     (id: string, updates: Partial<DrawingElement>) => {
-      console.log("Updating element:", id)
       const newElements = elements.map((el) =>
         el.id === id ? ({ ...el, ...updates } as DrawingElement) : el
       )
@@ -138,7 +99,6 @@ export const useDrawingHistory = (initialElements: DrawingElement[] = []) => {
 
   const removeElement = useCallback(
     (id: string) => {
-      console.log("Removing element:", id)
       const newElements = elements.filter((el) => el.id !== id)
       saveToHistory(newElements)
     },

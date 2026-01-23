@@ -21,8 +21,7 @@ export async function getSelectedWorkspaceId(): Promise<string | undefined> {
     return localStorage.getItem(STORAGE_KEY) ?? undefined
     }
     return undefined
-  } catch (error) {
-    console.error("[WorkspaceStore] Failed to get workspace ID:", error)
+  } catch {
     return undefined
   }
 }
@@ -41,8 +40,8 @@ export async function setSelectedWorkspaceId(
     if (typeof localStorage !== "undefined") {
       localStorage.setItem(STORAGE_KEY, workspaceId)
     }
-  } catch (error) {
-    console.error("[WorkspaceStore] Failed to save workspace ID:", error)
+  } catch {
+    // Failed to save workspace ID
   }
 }
 
@@ -57,8 +56,8 @@ export async function clearSelectedWorkspaceId(): Promise<void> {
     if (typeof localStorage !== "undefined") {
       localStorage.removeItem(STORAGE_KEY)
     }
-  } catch (error) {
-    console.error("[WorkspaceStore] Failed to clear workspace ID:", error)
+  } catch {
+    // Failed to clear workspace ID
   }
 }
 
@@ -97,4 +96,3 @@ export async function getActiveWorkspace(
 
   return undefined
 }
-

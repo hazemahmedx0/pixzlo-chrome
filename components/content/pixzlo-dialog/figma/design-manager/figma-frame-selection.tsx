@@ -80,10 +80,6 @@ const FigmaFrameSelection = memo(
                             alt={frame.name}
                             className="h-12 w-12 rounded border object-cover"
                             onError={(e) => {
-                              console.log(
-                                "Image failed to load:",
-                                frameImages[frame.id]
-                              )
                               e.currentTarget.style.display = "none"
                             }}
                           />

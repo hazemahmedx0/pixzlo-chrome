@@ -41,11 +41,8 @@ export const CaptureButton = ({
 
   const pingContentScript = (tabId: number): Promise<boolean> => {
     return new Promise((resolve) => {
-      console.log(`🔍 Pinging content script on tab ${tabId}...`)
-
       // Set a timeout for the message
       const timeoutId = setTimeout(() => {
-        console.log("⏰ Ping timeout - content script not responding")
         resolve(false)
       }, 1000) // 1 second timeout
 
@@ -53,19 +50,10 @@ export const CaptureButton = ({
         clearTimeout(timeoutId)
 
         if (chrome.runtime.lastError) {
-          console.log(
-            "❌ Chrome runtime error:",
-            chrome.runtime.lastError.message
-          )
-          console.log(
-            "💡 Possible causes: Content script not injected, wrong page type, or permissions issue"
-          )
           resolve(false)
         } else if (!response?.pong) {
-          console.log("❌ Invalid response from content script:", response)
           resolve(false)
         } else {
-          console.log("✅ Content script is ready and responding")
           resolve(true)
         }
       })
@@ -76,8 +64,6 @@ export const CaptureButton = ({
     tabId: number,
     retryCount = 0
   ): Promise<void> => {
-    console.log(`🚀 Attempt ${retryCount + 1}: Checking content script...`)
-
     // First, ping to check if content script is ready
     const isReady = await pingContentScript(tabId)
 
@@ -93,21 +79,17 @@ export const CaptureButton = ({
         return
       }
 
-      console.error("💥 Content script never became ready")
-      console.error("🔍 Retries attempted:", retryCount + 1)
-
       // Get current tab info for debugging
       chrome.tabs.query(
         { active: true, currentWindow: true },
         ([currentTab]) => {
-          console.error("🔍 Debug info: Tab URL:", currentTab?.url)
           alert(
-            "❌ Extension cannot communicate with this page.\n\n" +
+            "Extension cannot communicate with this page.\n\n" +
               "Troubleshooting steps:\n" +
-              "1. ✅ Refresh this page and wait 2-3 seconds\n" +
-              "2. ✅ Try a regular website (google.com, github.com)\n" +
-              "3. ✅ Check extension permissions in chrome://extensions/\n" +
-              "4. ✅ Make sure content scripts are enabled\n\n" +
+              "1. Refresh this page and wait 2-3 seconds\n" +
+              "2. Try a regular website (google.com, github.com)\n" +
+              "3. Check extension permissions in chrome://extensions/\n" +
+              "4. Make sure content scripts are enabled\n\n" +
               "Current page: " +
               (currentTab?.url || "unknown")
           )
@@ -123,13 +105,11 @@ export const CaptureButton = ({
       { type: "start-element-selection", mode },
       (response) => {
         if (chrome.runtime.lastError) {
-          console.warn("❌ Message failed:", chrome.runtime.lastError.message)
           setIsSending(false)
           return
         }
 
         // Success!
-        console.log("✅ Message sent successfully:", response)
         setIsSending(false)
         window.close()
       }
@@ -137,17 +117,13 @@ export const CaptureButton = ({
   }
 
   const handleCapture = useCallback(async (): Promise<void> => {
-    console.log("🎯 CAPTURE BUTTON CLICKED!", { mode, isSending })
-
     // Check if chrome APIs are available
     if (!chrome || !chrome.tabs) {
-      console.error("❌ Chrome APIs not available!")
       setIsSending(false)
       return
     }
 
     if (isSending) {
-      console.log("❌ Already sending, ignoring click")
       return
     }
 
@@ -159,7 +135,6 @@ export const CaptureButton = ({
       })
 
       if (!tab?.id) {
-        console.error("❌ No active tab found")
         setIsSending(false)
         return
       }
@@ -179,12 +154,8 @@ export const CaptureButton = ({
       )
 
       if (isRestrictedPage) {
-        console.error(
-          "❌ Cannot inject content script on restricted page:",
-          tab.url
-        )
         alert(
-          "❌ Cannot capture on this page type.\n\n" +
+          "Cannot capture on this page type.\n\n" +
             "Browser restrictions prevent extensions from working on:\n" +
             "• Settings pages (chrome://)\n" +
             "• Extension pages\n" +
@@ -196,12 +167,10 @@ export const CaptureButton = ({
       }
 
       setIsSending(true)
-      console.log("✅ Starting capture process on URL:", tab.url)
 
       // Continue with the rest of the process
       await sendMessageWithRetry(tab.id)
-    } catch (error) {
-      console.error("❌ Error during tab query:", error)
+    } catch {
       setIsSending(false)
       return
     }

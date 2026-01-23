@@ -119,11 +119,6 @@ export class FigmaService {
       Date.now() - this.cachedMetadata.fetchedAt < cacheValidForMs
 
     if (cacheValid && this.cachedMetadata) {
-      console.log(
-        "📋 Using cached Figma metadata (workspace:",
-        this.cachedMetadata.workspaceId,
-        ")"
-      )
       return { success: true, data: this.cachedMetadata.data }
     }
 

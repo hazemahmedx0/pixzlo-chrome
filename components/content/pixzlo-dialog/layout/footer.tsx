@@ -14,6 +14,7 @@ import { memo, useCallback, useEffect, useState } from "react"
 interface FooterProps {
   onCancel: () => void
   onSubmit: () => void
+  onIssueCreated?: () => void
   issueTitle?: string
   issueDescription?: string
 }
@@ -22,6 +23,7 @@ const Footer = memo(
   ({
     onCancel,
     onSubmit,
+    onIssueCreated,
     issueTitle,
     issueDescription
   }: FooterProps): JSX.Element => {
@@ -36,8 +38,8 @@ const Footer = memo(
     useEffect(() => {
       if (isConnected && !isLoading) {
         // Fetch metadata to get preferences and options
-        fetchMetadata().catch((err) => {
-          console.error("Failed to fetch Linear metadata:", err)
+        fetchMetadata().catch(() => {
+          // Failed to fetch Linear metadata
         })
       }
     }, [isConnected, isLoading, fetchMetadata])
@@ -81,7 +83,8 @@ const Footer = memo(
     const { handleSubmit: handleSubmitWithPreferences, isSubmitting } =
       useIssueSubmissionWithPreferences(
         onSubmit,
-        shareToLinear && isConnected ? linearSelections : undefined
+        shareToLinear && isConnected ? linearSelections : undefined,
+        onIssueCreated
       )
 
     const handleLinearSelectionChange = (
@@ -97,7 +100,6 @@ const Footer = memo(
 
         // Clear workflow state if team changes (workflow states are team-specific)
         if (category === "teams" && prev.workflowStates) {
-          console.log("🔄 Team changed, clearing workflow state selection")
           delete newSelections.workflowStates
         }
 

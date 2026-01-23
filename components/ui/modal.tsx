@@ -54,8 +54,6 @@ const Modal = memo(
       }
     }
 
-    console.log("🎯 Modal rendering inline (not portal)")
-
     // Render inline - this stays within Plasmo's shadow root automatically
     // Use pointer-events: none on the overlay to allow clicks to pass through to the host page,
     // but pointer-events: auto on the modal content so users can interact with the modal itself.

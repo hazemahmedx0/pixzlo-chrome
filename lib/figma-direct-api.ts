@@ -330,10 +330,6 @@ async function figmaApiRequest<T>(
   if (!response.ok) {
     // Handle 401 - token might be expired, try refresh
     if (response.status === 401 && retryOnUnauthorized) {
-      console.log(
-        "[Figma Direct API] Got 401, attempting token refresh and retry..."
-      )
-
       try {
         await refreshToken()
         await new Promise((resolve) => setTimeout(resolve, TOKEN_RETRY_DELAY_MS))

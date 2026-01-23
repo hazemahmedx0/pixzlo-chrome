@@ -200,16 +200,6 @@ export const useLinearDataStore = create<LinearDataState>((set, get) => ({
       lastStatusWorkspaceId !== null &&
       currentWorkspaceId !== lastStatusWorkspaceId
 
-    if (workspaceChanged) {
-      console.log(
-        "🔄 Workspace changed from",
-        lastStatusWorkspaceId,
-        "to",
-        currentWorkspaceId,
-        "- forcing Linear status refresh"
-      )
-    }
-
     // If force is true OR workspace changed, reset the cache
     if (force || workspaceChanged) {
       lastStatusFetchedAt = null
@@ -262,10 +252,6 @@ export const useLinearDataStore = create<LinearDataState>((set, get) => ({
         })
         lastStatusFetchedAt = Date.now()
         lastStatusWorkspaceId = currentWorkspaceId // Track which workspace this status is for
-        console.log(
-          "✅ Linear status checked and cached for workspace:",
-          currentWorkspaceId
-        )
       } else {
         set({
           isConnected: false,
@@ -411,12 +397,6 @@ if (typeof chrome !== "undefined" && chrome.storage?.onChanged) {
         | undefined
 
       if (oldValue !== newValue && newValue) {
-        console.log(
-          "🔄 [LinearDataStore] Workspace changed via storage:",
-          oldValue,
-          "→",
-          newValue
-        )
         // Reset the cache so next checkStatus will fetch fresh data for the new workspace
         lastStatusFetchedAt = null
         lastStatusWorkspaceId = null

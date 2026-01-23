@@ -7,11 +7,11 @@ import { ImageDownloader } from "@/lib/image-download"
 import { usePixzloDialogStore } from "@/stores/pixzlo-dialog"
 import type { IssueData, Screenshot } from "@/types/capture"
 import type { DrawingElement } from "@/types/drawing"
-import { FigmaLogoIcon } from "@phosphor-icons/react"
 import { X } from "lucide-react"
 import { memo, useCallback, useEffect, useRef } from "react"
 
 import FigmaModalContent from "./figma/figma-modal-content"
+import { PageSelector } from "./figma/page-selector"
 import FormSection from "./form/form-section"
 import ImageSection from "./images/image-section"
 import Footer from "./layout/footer"
@@ -23,6 +23,7 @@ interface PixzloDialogProps {
   isOpen: boolean
   onClose: () => void
   onSubmit?: (issueData: IssueData) => void
+  onIssueCreated?: () => void
   selectedElement?: HTMLElement
 }
 
@@ -32,6 +33,7 @@ const PixzloDialog = memo(
     isOpen,
     onClose,
     onSubmit,
+    onIssueCreated,
     selectedElement
   }: PixzloDialogProps): JSX.Element | null => {
     const {
@@ -88,9 +90,6 @@ const PixzloDialog = memo(
 
     // Handle close
     const handleClose = (): void => {
-      console.log(
-        "🔍 DEBUG: Main dialog handleClose called - closing entire dialog"
-      )
       closeDialog()
       onClose()
     }
@@ -105,7 +104,6 @@ const PixzloDialog = memo(
       elements: DrawingElement[],
       originalImage: string
     ): void => {
-      console.log("Drawing saved:", { imageUrl, elements, originalImage })
       setDrawingElements(elements)
       try {
         // Export drawing overlay from Konva if available and store globally
@@ -116,8 +114,8 @@ const PixzloDialog = memo(
           const overlay = drawingCanvasRef.current.exportDrawing()
           usePixzloDialogStore.getState().setDrawingOverlayDataUrl(overlay)
         }
-      } catch (error) {
-        console.warn("Failed to export drawing overlay:", error)
+      } catch {
+        // Failed to export drawing overlay
       }
     }
 
@@ -135,26 +133,17 @@ const PixzloDialog = memo(
         frameData?: any
       }
     ): void => {
-      console.log("✅ Figma design received in main dialog:", designData)
-      console.log("🔄 Current figmaDesign state:", figmaDesign)
-
       // Store the selected design in the Zustand store
       setFigmaDesign(designData)
 
       // Store the context data for future "change design" operations
       if (contextData) {
         setFigmaContext(contextData)
-        console.log("🔄 Figma context stored:", contextData)
       }
-
-      console.log("🔄 Figma design stored in Zustand store")
     }
 
     // Handle Figma authentication completion
     const handleAuthCompleted = async (): Promise<void> => {
-      console.log(
-        "🎯 Figma auth completed, refreshing auth status and designs..."
-      )
       // Refresh authentication status
       await checkAuth()
       // Refresh designs
@@ -179,7 +168,6 @@ const PixzloDialog = memo(
       }
 
       hasRefreshedForPopupRef.current = true
-      console.log("🎯 Figma popup opened - refreshing designs from backend...")
       void refreshDesigns()
     }, [isFigmaPopupOpen, designsLoading, refreshDesigns])
 
@@ -188,7 +176,6 @@ const PixzloDialog = memo(
       try {
         const currentScreenshot = storeScreenshots[0]
         if (!currentScreenshot) {
-          console.error("No screenshot available for download")
           return
         }
 
@@ -210,17 +197,7 @@ const PixzloDialog = memo(
           // Force a small delay to ensure all drawings are rendered
           await new Promise((resolve) => setTimeout(resolve, 100))
           drawingOverlay = drawingCanvasRef.current.exportDrawing()
-          console.log(
-            "Exported drawing overlay:",
-            drawingOverlay ? "Success" : "Failed"
-          )
         }
-
-        console.log("Downloading image with:", {
-          originalImageUrl,
-          drawingsCount: drawings.length,
-          hasDrawingOverlay: !!drawingOverlay
-        })
 
         // Use the composite image URL which matches the drawing canvas dimensions
         const compositeImageUrl =
@@ -237,10 +214,8 @@ const PixzloDialog = memo(
           useComposite: true, // Use the composite image that matches drawing canvas
           drawingOverlay // Pass the Konva export
         })
-
-        console.log("Image downloaded successfully")
-      } catch (error) {
-        console.error("Failed to download image:", error)
+      } catch {
+        // Failed to download image
       }
     }, [activeImageIndex, storeScreenshots, drawingElements])
 
@@ -330,20 +305,7 @@ const PixzloDialog = memo(
       }
     }, [isDialogRendered])
 
-    console.log("🎨 PixzloDialog render check:", {
-      isOpen,
-      currentScreenshot: !!currentScreenshot,
-      storeScreenshotsLength: storeScreenshots.length,
-      propsScreenshotsLength: screenshots.length
-    })
-
     if (!isOpen || !currentScreenshot) {
-      console.log(
-        "🚫 PixzloDialog not rendering - isOpen:",
-        isOpen,
-        "currentScreenshot:",
-        !!currentScreenshot
-      )
       return null
     }
 
@@ -423,6 +385,7 @@ const PixzloDialog = memo(
                   <Footer
                     onCancel={handleClose}
                     onSubmit={handleSubmit}
+                    onIssueCreated={onIssueCreated}
                     issueTitle={title}
                     issueDescription={description}
                   />
@@ -449,7 +412,7 @@ const PixzloDialog = memo(
             data-pixzlo-ui="figma-popup-overlay">
             {/* Modal Content */}
             <div
-              className="flex h-full flex-col overflow-hidden rounded-lg bg-white shadow-2xl"
+              className="flex h-full flex-col overflow-hidden rounded-[20px] bg-white shadow-2xl"
               style={{
                 position: "fixed",
                 top: "5vh",
@@ -463,19 +426,17 @@ const PixzloDialog = memo(
                 pointerEvents: "auto" // Enable clicks on modal
               }}
               onClick={(e) => e.stopPropagation()}>
-              {/* Close Button */}
-              <div className="border-separator flex h-[58px] items-center justify-between gap-2 border-b p-5">
-                <div className="flex items-center text-paragraph-md text-gray-850">
-                  <FigmaLogoIcon
-                    className="mr-3 text-gray-500"
-                    size={16}
-                    weight="duotone"
-                  />{" "}
-                  Select design
+              {/* Header with Page selector */}
+              <div className="border-separator flex h-[58px] items-center justify-between border-b px-5">
+                {/* Left side - Page selector */}
+                <div className="flex items-center gap-3">
+                  <PageSelector />
                 </div>
+
+                {/* Right side - Close button */}
                 <button
                   onClick={() => setIsFigmaPopupOpen(false)}
-                  className="absolute right-4 top-4 z-10 rounded-full bg-white/80 p-2 text-gray-500 shadow-sm transition-colors hover:bg-white hover:text-gray-700">
+                  className="flex h-8 w-8 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700">
                   <X className="h-4 w-4" />
                 </button>
               </div>
@@ -488,9 +449,6 @@ const PixzloDialog = memo(
                 <FigmaModalContent
                   isOpen={isFigmaPopupOpen}
                   onClose={() => {
-                    console.log(
-                      "🔍 DEBUG: Figma popup onClose called - closing only Figma popup"
-                    )
                     setIsFigmaPopupOpen(false)
                   }}
                   onDesignSelected={handleFigmaDesignSelected}

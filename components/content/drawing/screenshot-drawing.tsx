@@ -126,8 +126,7 @@ const ScreenshotDrawing = memo(
             })
             onSave(elements, dataUrl)
           }
-        } catch (error) {
-          console.error("Error saving drawing:", error)
+        } catch {
           // Fallback: just call onSave with empty dataUrl
           onSave(elements, "")
         }

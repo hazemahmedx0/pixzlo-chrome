@@ -19,8 +19,7 @@ export const useCSSExtraction = (): void => {
       try {
         const css = CSSExtractor.extractElementCSS(selectedElement)
         setExtractedCSS(css)
-      } catch (error) {
-        console.error("Error extracting CSS:", error)
+      } catch {
         setExtractedCSS(null)
       }
     } else {

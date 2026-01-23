@@ -54,11 +54,28 @@ const FigmaFrameSelector = memo(
   }: FigmaFrameSelectorProps): JSX.Element => {
     const [hoveredElement, setHoveredElement] = useState<any>(null)
     const [containerWidth, setContainerWidth] = useState(0)
+    // Track if the image has actually loaded (not just the URL)
+    const [isImageLoaded, setIsImageLoaded] = useState(false)
     const scrollContainerRef = useRef<HTMLDivElement>(null)
     const frameContainerRef = useRef<HTMLDivElement>(null)
     const frameImageRef = useRef<HTMLImageElement>(null)
     const overlayRef = useRef<HTMLDivElement>(null)
     const currentHighlightRef = useRef<HTMLDivElement | null>(null)
+    // Track the current imageUrl to detect changes
+    const previousImageUrlRef = useRef<string>(imageUrl)
+
+    // Reset image loaded state when imageUrl changes
+    useEffect(() => {
+      if (imageUrl !== previousImageUrlRef.current) {
+        setIsImageLoaded(false)
+        previousImageUrlRef.current = imageUrl
+      }
+    }, [imageUrl])
+
+    // Determine if we should show loading state:
+    // - isProcessing means API call is in progress
+    // - !isImageLoaded means image hasn't loaded yet after URL change
+    const isLoading = isProcessing || !isImageLoaded
 
     // Initialize toolbar store
     const { setAvailableFrames, setCurrentFrame } = useFigmaToolbarStore()
@@ -129,9 +146,11 @@ const FigmaFrameSelector = memo(
 
     const handleFrameChange = useCallback(
       (frame: FigmaFrame): void => {
-        // This could trigger a frame switch if needed
-        console.log("🔄 Frame changed to:", frame.name)
-        onFrameSwitch?.({ id: frame.id })
+        // Always trigger frame switch when user selects a different frame
+        // Use void to handle the promise without blocking
+        if (onFrameSwitch) {
+          void onFrameSwitch({ id: frame.id })
+        }
       },
       [onFrameSwitch]
     )
@@ -296,13 +315,7 @@ const FigmaFrameSelector = memo(
     const handleClick = useCallback(
       (e: React.MouseEvent) => {
         if (hoveredElement) {
-          console.log(
-            "🖱️ Clicked on element:",
-            hoveredElement.name,
-            hoveredElement.id
-          )
-
-          // 🔧 FIX: Remove the blue highlight before capturing the screenshot
+          // Remove the blue highlight before capturing the screenshot
           // This ensures the captured image doesn't include the selection box
           removeHighlight()
 
@@ -315,15 +328,41 @@ const FigmaFrameSelector = memo(
       [hoveredElement, onElementSelect, removeHighlight]
     )
 
+    // Handle image load completion
+    const handleImageLoad = useCallback((): void => {
+      setIsImageLoaded(true)
+    }, [])
+
     return (
       <div className="flex h-full w-full flex-col">
         {/* Main Content Area - Scrollable with left alignment */}
+        {/* Disable scrolling while loading to prevent user confusion */}
         <div
           ref={scrollContainerRef}
-          className="flex-1 overflow-auto bg-gray-50"
+          className={`relative flex-1 bg-gray-50 ${isLoading ? "overflow-hidden" : "overflow-auto"}`}
           data-scrollable="true"
-          onWheel={(e) => e.stopPropagation()}
+          onWheel={(e) => {
+            // Prevent scrolling while loading
+            if (isLoading) {
+              e.preventDefault()
+              e.stopPropagation()
+            } else {
+              e.stopPropagation()
+            }
+          }}
           style={{ scrollBehavior: "smooth" }}>
+          {/* Loading overlay - only covers the preview area */}
+          {isLoading && (
+            <div className="absolute inset-0 z-20 flex items-center justify-center bg-gray-50/80 backdrop-blur-sm">
+              <div className="flex flex-col items-center gap-3 text-gray-500">
+                <div className="h-8 w-8 animate-spin rounded-full border-2 border-gray-300 border-t-blue-500" />
+                <span className="text-sm font-medium">
+                  Loading design preview...
+                </span>
+              </div>
+            </div>
+          )}
+
           {/* Left-aligned container */}
           <div className="flex justify-start">
             <div className="inline-block rounded-lg">
@@ -331,9 +370,9 @@ const FigmaFrameSelector = memo(
                 ref={frameContainerRef}
                 data-pixzlo-frame="true"
                 className="relative cursor-crosshair"
-                onMouseMove={handleMouseMove}
-                onMouseLeave={handleMouseLeave}
-                onClick={handleClick}>
+                onMouseMove={isLoading ? undefined : handleMouseMove}
+                onMouseLeave={isLoading ? undefined : handleMouseLeave}
+                onClick={isLoading ? undefined : handleClick}>
                 <img
                   ref={frameImageRef}
                   src={imageUrl}
@@ -342,9 +381,12 @@ const FigmaFrameSelector = memo(
                   style={{
                     minWidth: "600px",
                     maxWidth: getImageMaxWidth(),
-                    height: "auto"
+                    height: "auto",
+                    opacity: isLoading ? 0.5 : 1,
+                    transition: "opacity 0.2s ease-in-out"
                   }}
                   draggable={false}
+                  onLoad={handleImageLoad}
                 />
                 <div
                   ref={overlayRef}
@@ -355,12 +397,14 @@ const FigmaFrameSelector = memo(
           </div>
         </div>
 
-        {/* Figma Toolbar - replaces status bar */}
+        {/* Figma Toolbar - always visible, never hidden during loading */}
         <FigmaToolbar
           onAddFrame={handleAddFrame}
           onRefreshFrames={handleRefreshFrames}
           onOpenInFigma={handleOpenInFigma}
           onFrameChange={handleFrameChange}
+          frames={availableFrames}
+          selectedFrame={currentFrame}
         />
       </div>
     )
