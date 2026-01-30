@@ -7,11 +7,13 @@
  */
 
 import type { FigmaFile, FigmaNode } from "@/types/figma"
+
 import { PIXZLO_WEB_URL } from "~lib/constants"
 import {
   clearTokenCache,
   extractElementsFromNode as directExtractElements,
   fetchFigmaFile as directFetchFigmaFile,
+  fetchFigmaNode as directFetchFigmaNode,
   findNodeById as directFindNodeById,
   renderFigmaNode as directRenderFigmaNode
 } from "~lib/figma-direct-api"
@@ -133,8 +135,8 @@ export class FigmaService {
    * Fetches a Figma file directly via the Figma API.
    * Uses the token cached by figma-direct-api module.
    */
-  static async fetchFile(fileId: string): Promise<FigmaFile> {
-    return directFetchFigmaFile(fileId)
+  static async fetchFile(fileId: string, depth?: number): Promise<FigmaFile> {
+    return directFetchFigmaFile(fileId, depth)
   }
 
   /**
@@ -182,19 +184,23 @@ export class FigmaService {
   /**
    * Extracts frames from Figma file data for frame selection UI.
    */
-  static extractFramesFromFigmaData(
-    data: { document?: { children?: FigmaNode[] } }
-  ): Array<{
+  static extractFramesFromFigmaData(data: {
+    document?: { children?: FigmaNode[] }
+  }): Array<{
     id: string
     name: string
     type: string
-    absoluteBoundingBox: { x: number; y: number; width: number; height: number } | undefined
+    absoluteBoundingBox:
+      | { x: number; y: number; width: number; height: number }
+      | undefined
   }> {
     const frames: Array<{
       id: string
       name: string
       type: string
-      absoluteBoundingBox: { x: number; y: number; width: number; height: number } | undefined
+      absoluteBoundingBox:
+        | { x: number; y: number; width: number; height: number }
+        | undefined
     }> = []
 
     function traverseNode(node: FigmaNode): void {
@@ -227,7 +233,11 @@ export class FigmaService {
    * Renders a Figma frame with caching and request deduplication.
    * Returns frame data, extracted elements, and rendered image URL.
    */
-  static async renderFrame(figmaUrl: string): Promise<ApiResponse<FrameRenderResponse>> {
+  static async renderFrame(
+    figmaUrl: string,
+    options?: { force?: boolean }
+  ): Promise<ApiResponse<FrameRenderResponse>> {
+    const forceRefresh = options?.force === true
     const parsed = this.parseFigmaUrl(figmaUrl)
     if (!parsed || !parsed.fileId) {
       return {
@@ -250,12 +260,12 @@ export class FigmaService {
 
     // Check cache for valid result
     const cachedFrame = this.frameRenderCache.get(cacheKey)
-    if (cachedFrame && cachedFrame.expiresAt > now) {
+    if (!forceRefresh && cachedFrame && cachedFrame.expiresAt > now) {
       return { success: true, data: cachedFrame.data }
     }
 
     // Remove expired cache entry
-    if (cachedFrame) {
+    if (cachedFrame && (forceRefresh || cachedFrame.expiresAt <= now)) {
       this.frameRenderCache.delete(cacheKey)
     }
 
@@ -265,28 +275,40 @@ export class FigmaService {
     if (!frameRequest) {
       // Create new render request
       frameRequest = (async (): Promise<FrameRenderResponse> => {
-        const figmaData = await this.fetchFile(fileId)
+        const imagePromise = this.renderNode(fileId, nodeId)
 
-        const documentNode = figmaData?.nodes
-          ? Object.values(figmaData.nodes)[0]
-          : undefined
-        const figmaDocument = { document: documentNode }
+        let frameData: FigmaNode | undefined
 
-        if (!documentNode) {
-          throw new Error("Invalid Figma file response")
+        try {
+          frameData = await directFetchFigmaNode(fileId, nodeId)
+        } catch {
+          frameData = undefined
         }
 
-        // Find the specific frame/node
-        const frameData = this.findNodeById(figmaDocument, nodeId)
+        let fileName = ""
+
         if (!frameData) {
-          throw new Error(`Frame with node-id ${nodeId} not found in file`)
+          const figmaData = await this.fetchFile(fileId)
+
+          const documentNode = figmaData?.nodes
+            ? Object.values(figmaData.nodes)[0]
+            : undefined
+          const figmaDocument = { document: documentNode }
+
+          if (!documentNode) {
+            throw new Error("Invalid Figma file response")
+          }
+
+          frameData = this.findNodeById(figmaDocument, nodeId)
+          if (!frameData) {
+            throw new Error(`Frame with node-id ${nodeId} not found in file`)
+          }
+
+          fileName = figmaData.name
         }
 
-        // Extract all elements from the frame
         const elements = this.extractElements(frameData, nodeId)
-
-        // Render the frame as an image
-        const imageUrl = await this.renderNode(fileId, nodeId)
+        const imageUrl = await imagePromise
 
         const responseData: FrameRenderResponse = {
           fileId,
@@ -294,7 +316,7 @@ export class FigmaService {
           frameData,
           elements,
           imageUrl,
-          fileName: figmaData.name
+          fileName
         }
 
         // Cache the result
@@ -438,7 +460,9 @@ export class FigmaService {
         }
       }
 
-      const url = new URL(`${PIXZLO_WEB_URL}/api/integrations/figma/preferences`)
+      const url = new URL(
+        `${PIXZLO_WEB_URL}/api/integrations/figma/preferences`
+      )
       url.searchParams.set("websiteUrl", data.websiteUrl)
       url.searchParams.set("workspaceId", workspaceId)
 
@@ -469,7 +493,9 @@ export class FigmaService {
 
       return {
         success: true,
-        preference: result.preference
+        data: {
+          preference: result.preference
+        }
       }
     } catch (error) {
       return {
@@ -587,7 +613,9 @@ export class FigmaService {
       return {
         success: false,
         error:
-          error instanceof Error ? error.message : "Failed to create design link"
+          error instanceof Error
+            ? error.message
+            : "Failed to create design link"
       }
     }
   }
@@ -633,7 +661,9 @@ export class FigmaService {
       return {
         success: false,
         error:
-          error instanceof Error ? error.message : "Failed to delete design link"
+          error instanceof Error
+            ? error.message
+            : "Failed to delete design link"
       }
     }
   }

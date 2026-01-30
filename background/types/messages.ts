@@ -90,6 +90,7 @@ export interface FigmaApiCallMessage extends BaseMessage {
 export interface FigmaRenderFrameMessage extends BaseMessage {
   type: "FIGMA_RENDER_FRAME"
   figmaUrl: string
+  force?: boolean
 }
 
 /**

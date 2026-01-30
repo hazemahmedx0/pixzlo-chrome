@@ -1,11 +1,12 @@
+import { toast } from "@/components/ui/sonner"
 import { useFigmaPreferences } from "@/hooks/use-figma-preferences"
 import { composeAnnotatedImage } from "@/lib/compose-image"
+import { FigmaService } from "@/lib/figma-service"
 import { useFigmaToolbarStore } from "@/stores/figma-toolbar"
 import { useLinearDataStore } from "@/stores/linear-data"
 import { usePixzloDialogStore } from "@/stores/pixzlo-dialog"
 import type { IssueData } from "@/types/capture"
 import { useCallback, useState } from "react"
-import { toast } from "@/components/ui/sonner"
 
 interface UseIssueSubmissionReturn {
   handleSubmit: () => void
@@ -33,15 +34,57 @@ export const useIssueSubmissionWithPreferences = (
   const { preference: existingFigmaPreference } = useFigmaPreferences()
   const [isSubmitting, setIsSubmitting] = useState(false)
 
+  const persistFigmaLinkAfterIssue = useCallback(async (): Promise<void> => {
+    try {
+      const dialogState = usePixzloDialogStore.getState()
+      const figmaContext = dialogState.figmaContext
+      const figmaUrl =
+        dialogState.figmaDesign?.figmaUrl || figmaContext?.figmaUrl
+      const fileId = figmaContext?.fileId
+      const frameId = figmaContext?.frameId
+
+      if (!figmaUrl || !fileId || !frameId) {
+        return
+      }
+
+      const localDesigns = dialogState.localFigmaDesigns ?? []
+      const localMatch = localDesigns.find(
+        (design) =>
+          design.figma_frame_id === frameId || design.frame_url === figmaUrl
+      )
+      if (!localMatch) {
+        return
+      }
+
+      const figmaService = FigmaService.getInstance()
+      const response = await figmaService.createDesignLink({
+        figma_file_id: fileId,
+        figma_frame_id: frameId,
+        frame_name: localMatch.frame_name || figmaContext?.frameData?.name,
+        frame_url: figmaUrl,
+        thumbnail_url: localMatch.thumbnail_url
+      })
+
+      if (response.success) {
+        usePixzloDialogStore.getState().setNeedsFigmaMetadataRefresh(true)
+      }
+    } catch {
+      // Don't block issue creation if link persistence fails
+    }
+  }, [])
+
   const savePreferences = useCallback(async (): Promise<void> => {
     try {
       const currentWebsiteUrl = window.location.href
+
+      const preferredFrameId =
+        currentFrame?.figmaFrameId ?? currentFrame?.id ?? null
 
       const shouldUpdateFigmaPreference =
         currentFrame &&
         currentWebsiteUrl &&
         (!existingFigmaPreference ||
-          existingFigmaPreference.lastUsedFrameId !== currentFrame.id)
+          existingFigmaPreference.lastUsedFrameId !== preferredFrameId)
 
       if (shouldUpdateFigmaPreference) {
         try {
@@ -54,7 +97,7 @@ export const useIssueSubmissionWithPreferences = (
                 type: "figma-update-preference",
                 data: {
                   websiteUrl: currentWebsiteUrl,
-                  frameId: currentFrame.id,
+                  frameId: preferredFrameId || currentFrame.id,
                   frameName: currentFrame.name,
                   fileId: currentFrame.fileId,
                   frameUrl: currentFrame.figmaUrl,
@@ -361,6 +404,9 @@ export const useIssueSubmissionWithPreferences = (
 
             setIsSubmitting(false)
 
+            // Persist new Figma link only after issue creation succeeds
+            void persistFigmaLinkAfterIssue()
+
             // Close dialog but keep extension active for more selections
             if (onIssueCreated) {
               onIssueCreated()
@@ -376,7 +422,14 @@ export const useIssueSubmissionWithPreferences = (
       onSubmit?.(issueData)
       setIsSubmitting(false)
     })
-  }, [onSubmit, createIssueData, savePreferences, isSubmitting, onIssueCreated])
+  }, [
+    onSubmit,
+    createIssueData,
+    savePreferences,
+    isSubmitting,
+    onIssueCreated,
+    persistFigmaLinkAfterIssue
+  ])
 
   return { handleSubmit, isSubmitting }
 }

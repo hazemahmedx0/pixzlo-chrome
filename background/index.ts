@@ -14,36 +14,36 @@
 import "~lib/console-silencer"
 
 import {
+  // API handlers
+  handleApiCall,
+  handleCaptureElementScreenshot,
+  // Capture handlers
+  handleCaptureScreen,
+  handleDummyApiCall,
+  handleFetchImageDataUrl,
+  handleFetchPagesTree,
+  handleFigmaCreateDesignLink,
+  handleFigmaDeleteDesignLink,
+  handleFigmaFetchMetadata,
+  handleFigmaFetchPreference,
+  // Figma handlers
+  handleFigmaGetFile,
+  handleFigmaGetImage,
+  handleFigmaOAuth,
+  handleFigmaRenderElement,
+  handleFigmaRenderFrame,
+  handleFigmaUpdatePreference,
   // Extension handlers
   handleGetPinnedState,
-  handleOpenIntegrationsSettings,
-  setupExtensionLifecycleHandlers,
   // Linear handlers
   handleLinearCheckStatus,
   handleLinearCreateIssue,
   handleLinearFetchMetadata,
   handleLinearFetchPreference,
   handleLinearUpdatePreference,
-  // Figma handlers
-  handleFigmaGetFile,
-  handleFigmaRenderFrame,
-  handleFigmaRenderElement,
-  handleFigmaGetImage,
-  handleFigmaOAuth,
-  handleFigmaFetchPreference,
-  handleFigmaUpdatePreference,
-  handleFigmaFetchMetadata,
-  handleFigmaCreateDesignLink,
-  handleFigmaDeleteDesignLink,
-  // Capture handlers
-  handleCaptureScreen,
-  handleCaptureElementScreenshot,
-  handleFetchImageDataUrl,
-  // API handlers
-  handleApiCall,
-  handleDummyApiCall,
+  handleOpenIntegrationsSettings,
   handleSubmitIssue,
-  handleFetchPagesTree
+  setupExtensionLifecycleHandlers
 } from "./handlers"
 import { setupStorageListeners } from "./utils"
 
@@ -92,7 +92,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch((error) => {
         sendResponse({
           success: false,
-          error: error instanceof Error ? error.message : "Failed to open settings"
+          error:
+            error instanceof Error ? error.message : "Failed to open settings"
         })
       })
     return true
@@ -112,7 +113,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (msg.type === "linear-create-issue") {
-    handleLinearCreateIssue(msg.data as Parameters<typeof handleLinearCreateIssue>[0])
+    handleLinearCreateIssue(
+      msg.data as Parameters<typeof handleLinearCreateIssue>[0]
+    )
       .then(sendResponse)
       .catch((error) => {
         sendResponse({
@@ -161,7 +164,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (msg.type === "linear-update-preference") {
-    handleLinearUpdatePreference(msg.data as Parameters<typeof handleLinearUpdatePreference>[0])
+    handleLinearUpdatePreference(
+      msg.data as Parameters<typeof handleLinearUpdatePreference>[0]
+    )
       .then(sendResponse)
       .catch((error) => {
         sendResponse({
@@ -180,7 +185,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         .catch((error) => {
           sendResponse({
             success: false,
-            error: error instanceof Error ? error.message : "Failed to fetch Figma file"
+            error:
+              error instanceof Error
+                ? error.message
+                : "Failed to fetch Figma file"
           })
         })
       return true
@@ -188,12 +196,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (msg.type === "FIGMA_RENDER_FRAME") {
-    handleFigmaRenderFrame(msg.figmaUrl as string)
+    handleFigmaRenderFrame(
+      msg.figmaUrl as string,
+      msg.force as boolean | undefined
+    )
       .then(sendResponse)
       .catch((error) => {
         sendResponse({
           success: false,
-          error: error instanceof Error ? error.message : "Failed to render Figma frame"
+          error:
+            error instanceof Error
+              ? error.message
+              : "Failed to render Figma frame"
         })
       })
     return true
@@ -205,7 +219,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch((error) => {
         sendResponse({
           success: false,
-          error: error instanceof Error ? error.message : "Failed to render element"
+          error:
+            error instanceof Error ? error.message : "Failed to render element"
         })
       })
     return true
@@ -217,7 +232,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch((error) => {
         sendResponse({
           success: false,
-          error: error instanceof Error ? error.message : "Failed to fetch image"
+          error:
+            error instanceof Error ? error.message : "Failed to fetch image"
         })
       })
     return true
@@ -243,7 +259,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (msg.type === "figma-update-preference") {
-    handleFigmaUpdatePreference(msg.data as Parameters<typeof handleFigmaUpdatePreference>[0])
+    handleFigmaUpdatePreference(
+      msg.data as Parameters<typeof handleFigmaUpdatePreference>[0]
+    )
       .then(sendResponse)
       .catch((error) => {
         sendResponse({
@@ -255,7 +273,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (msg.type === "figma-fetch-metadata") {
-    handleFigmaFetchMetadata(msg.data as Parameters<typeof handleFigmaFetchMetadata>[0])
+    handleFigmaFetchMetadata(
+      msg.data as Parameters<typeof handleFigmaFetchMetadata>[0]
+    )
       .then(sendResponse)
       .catch((error) => {
         sendResponse({
@@ -267,7 +287,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (msg.type === "figma-create-design-link") {
-    handleFigmaCreateDesignLink(msg.data as Parameters<typeof handleFigmaCreateDesignLink>[0])
+    handleFigmaCreateDesignLink(
+      msg.data as Parameters<typeof handleFigmaCreateDesignLink>[0]
+    )
       .then(sendResponse)
       .catch((error) => {
         sendResponse({
@@ -279,7 +301,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (msg.type === "figma-delete-design-link") {
-    handleFigmaDeleteDesignLink(msg.data as Parameters<typeof handleFigmaDeleteDesignLink>[0])
+    handleFigmaDeleteDesignLink(
+      msg.data as Parameters<typeof handleFigmaDeleteDesignLink>[0]
+    )
       .then(sendResponse)
       .catch((error) => {
         sendResponse({
@@ -304,7 +328,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (msg.type === "CAPTURE_ELEMENT_SCREENSHOT") {
-    handleCaptureElementScreenshot(msg.area as Parameters<typeof handleCaptureElementScreenshot>[0])
+    handleCaptureElementScreenshot(
+      msg.area as Parameters<typeof handleCaptureElementScreenshot>[0]
+    )
       .then(sendResponse)
       .catch((error) => {
         sendResponse({
@@ -371,7 +397,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch((error) => {
         sendResponse({
           success: false,
-          error: error instanceof Error ? error.message : "Failed to fetch pages tree"
+          error:
+            error instanceof Error
+              ? error.message
+              : "Failed to fetch pages tree"
         })
       })
     return true

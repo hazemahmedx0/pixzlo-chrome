@@ -107,7 +107,7 @@ export function PageSelector(): JSX.Element {
         ) : (
           <Globe className="h-4 w-4 text-gray-400" />
         )}
-        <span className="max-w-[160px] truncate font-medium text-gray-700">
+        <span className="max-w-[160px] truncate text-paragraph-sm text-gray-700">
           {displayOrigin}
         </span>
       </div>
@@ -127,8 +127,8 @@ export function PageSelector(): JSX.Element {
 
       {/* Show indicator if current page is new */}
       {!currentPageInTree && !selectedPageId && (
-        <span className="rounded-md bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-600">
-          NEW
+        <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-blue-600">
+          New
         </span>
       )}
     </div>

@@ -106,7 +106,7 @@ export const LoginButton = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="text-gray-600">© 2025 Pixzlo</span>
+          <span className="text-gray-600">© 2026 Pixzlo</span>
           <span className="text-gray-400">-</span>
           <a
             href="mailto:support@pixzlo.com"

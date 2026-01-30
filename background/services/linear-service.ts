@@ -298,7 +298,7 @@ export class LinearService {
 
       return {
         success: true,
-        preference: result.preference
+        data: { preference: result.preference }
       }
     } catch (error) {
       return {
@@ -362,7 +362,7 @@ export class LinearService {
 
       return {
         success: true,
-        preference: result.preference
+        data: { preference: result.preference }
       }
     } catch (error) {
       return {

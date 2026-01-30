@@ -44,7 +44,9 @@ export function useFigmaDesigns(): UseFigmaDesignsReturn {
     }
 
     const preferredIndex = metadata.designLinks.findIndex(
-      (design) => design.figma_frame_id === preferredFrameId
+      (design) =>
+        design.figma_frame_id === preferredFrameId ||
+        design.id === preferredFrameId
     )
 
     if (preferredIndex <= 0) {

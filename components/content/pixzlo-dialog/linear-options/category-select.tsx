@@ -1,10 +1,4 @@
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
-} from "@/components/ui/select"
+import { Combobox, type ComboboxOption } from "@/components/ui/combobox"
 import type { LinearOptionsData } from "@/stores/linear-data"
 
 // LinearSelectionState is now defined in this file
@@ -108,23 +102,30 @@ export function CategorySelect({
     }
   }
 
-  // Get filtered options based on selections
-  const getFilteredOptions = (key: LinearOptionCategory): CategoryOption[] => {
+  // Get filtered options based on selections and convert to ComboboxOption format
+  const getFilteredOptions = (key: LinearOptionCategory): ComboboxOption[] => {
     const allOptions = getOptionsForCategory(data, key)
 
     // Filter workflow states based on selected team
     if (key === "workflowStates" && selections.teams?.id) {
-      return allOptions.filter(
+      const filtered = allOptions.filter(
         (option) =>
           data.workflowStates?.find((state) => state.id === option.id)?.team
             ?.id === selections.teams?.id
       )
+      return filtered.map((opt) => ({
+        value: opt.id,
+        label: opt.primary,
+        secondary: opt.secondary
+      }))
     }
 
-    // Filter projects based on selected team (if there's a team property on projects)
-    // For now, return all projects as they may not have team associations
-
-    return allOptions
+    // Convert CategoryOption to ComboboxOption
+    return allOptions.map((opt) => ({
+      value: opt.id,
+      label: opt.primary,
+      secondary: opt.secondary
+    }))
   }
 
   return (
@@ -145,37 +146,17 @@ export function CategorySelect({
               </span>
             </div>
             <div className="flex items-center">
-              <Select
+              <Combobox
+                options={options}
                 value={selectedId}
                 onValueChange={(next) => onSelect(key, next)}
-                disabled={isLoading || options.length === 0}>
-                <SelectTrigger className="h-8 w-full text-xs">
-                  <SelectValue
-                    placeholder={
-                      isLoading ? "Loading..." : `Select ${label.toLowerCase()}`
-                    }
-                  />
-                </SelectTrigger>
-                <SelectContent position="popper" className="max-h-60 text-xs">
-                  {isLoading ? (
-                    <SelectItem value="__loading" disabled>
-                      Loading {label.toLowerCase()}...
-                    </SelectItem>
-                  ) : options.length === 0 ? (
-                    <SelectItem value="__empty" disabled>
-                      No {label.toLowerCase()}s available
-                    </SelectItem>
-                  ) : (
-                    options.map((option) => (
-                      <SelectItem key={option.id} value={option.id}>
-                        <span className="font-medium text-gray-700">
-                          {option.primary}
-                        </span>
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
+                disabled={isLoading || options.length === 0}
+                placeholder={
+                  isLoading ? "Loading..." : `Select ${label.toLowerCase()}`
+                }
+                searchPlaceholder={`Search ${label.toLowerCase()}...`}
+                emptyText={`No ${label.toLowerCase()}s found.`}
+              />
             </div>
           </div>
         )

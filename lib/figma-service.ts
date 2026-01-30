@@ -29,6 +29,8 @@ interface FigmaMetadata {
   } | null
 }
 
+const IMAGE_CACHE_TTL_MS = 5 * 60 * 1000
+
 export class FigmaService {
   private static instance: FigmaService
 
@@ -38,6 +40,11 @@ export class FigmaService {
     data: FigmaMetadata
     fetchedAt: number
   } | null = null
+
+  private imageCache = new Map<
+    string,
+    { imageUrl: string; expiresAt: number }
+  >()
 
   static getInstance(): FigmaService {
     if (!FigmaService.instance) {
@@ -57,6 +64,44 @@ export class FigmaService {
     } catch {
       return undefined
     }
+  }
+
+  private normalizeWebsiteUrl(websiteUrl: string | null): string | null {
+    if (!websiteUrl) return null
+    try {
+      const parsed = new URL(websiteUrl)
+      return parsed.origin + parsed.pathname
+    } catch {
+      return websiteUrl
+    }
+  }
+
+  private getImageCacheKey(
+    fileId: string,
+    nodeId: string,
+    format?: "jpg" | "png" | "svg",
+    scale?: number
+  ): string {
+    return [fileId, nodeId, format ?? "default", scale ?? "default"].join(":")
+  }
+
+  private getCachedImageUrl(cacheKey: string): string | undefined {
+    const cached = this.imageCache.get(cacheKey)
+    if (!cached) return undefined
+
+    if (cached.expiresAt <= Date.now()) {
+      this.imageCache.delete(cacheKey)
+      return undefined
+    }
+
+    return cached.imageUrl
+  }
+
+  private setCachedImageUrl(cacheKey: string, imageUrl: string): void {
+    this.imageCache.set(cacheKey, {
+      imageUrl,
+      expiresAt: Date.now() + IMAGE_CACHE_TTL_MS
+    })
   }
 
   private async callBackground<T>(
@@ -102,6 +147,7 @@ export class FigmaService {
     options?: { force?: boolean; workspaceId?: string }
   ): Promise<FigmaApiResponse<FigmaMetadata>> {
     const cacheValidForMs = 5 * 60 * 1000
+    const normalizedWebsiteUrl = this.normalizeWebsiteUrl(websiteUrl)
     const resolvedWorkspaceId =
       options?.workspaceId ?? (await this.getSelectedWorkspaceId()) ?? null
 
@@ -114,7 +160,7 @@ export class FigmaService {
     const cacheValid =
       !options?.force &&
       this.cachedMetadata &&
-      this.cachedMetadata.websiteUrl === websiteUrl &&
+      this.cachedMetadata.websiteUrl === normalizedWebsiteUrl &&
       this.cachedMetadata.workspaceId === resolvedWorkspaceId &&
       Date.now() - this.cachedMetadata.fetchedAt < cacheValidForMs
 
@@ -125,7 +171,7 @@ export class FigmaService {
     const response = await this.callBackground<FigmaMetadata>({
       type: "figma-fetch-metadata",
       data: {
-        websiteUrl,
+        websiteUrl: normalizedWebsiteUrl,
         force: Boolean(options?.force),
         workspaceId: resolvedWorkspaceId ?? undefined
       }
@@ -133,7 +179,7 @@ export class FigmaService {
 
     if (response.success && response.data) {
       this.cachedMetadata = {
-        websiteUrl,
+        websiteUrl: normalizedWebsiteUrl,
         workspaceId: resolvedWorkspaceId,
         data: response.data,
         fetchedAt: Date.now()
@@ -145,6 +191,7 @@ export class FigmaService {
 
   clearMetadataCache(): void {
     this.cachedMetadata = null
+    this.imageCache.clear()
   }
 
   async checkAuthStatus(): Promise<FigmaApiResponse<FigmaAuthStatus>> {
@@ -284,7 +331,10 @@ export class FigmaService {
     return response
   }
 
-  async getFigmaFile(fileId: string): Promise<FigmaApiResponse<FigmaFile>> {
+  async getFigmaFile(
+    fileId: string,
+    options: { depth?: number } = {}
+  ): Promise<FigmaApiResponse<FigmaFile>> {
     const metadataResponse = await this.getMetadata(window.location.href)
     if (!metadataResponse.success || !metadataResponse.data) {
       return {
@@ -302,7 +352,12 @@ export class FigmaService {
     }
 
     const cacheBust = Date.now()
-    const figmaUrl = `https://api.figma.com/v1/files/${fileId}?version=${cacheBust}`
+    const params = new URLSearchParams()
+    params.set("version", cacheBust.toString())
+    if (typeof options.depth === "number") {
+      params.set("depth", options.depth.toString())
+    }
+    const figmaUrl = `https://api.figma.com/v1/files/${fileId}?${params.toString()}`
 
     try {
       const response = await fetch(figmaUrl, {
@@ -342,6 +397,20 @@ export class FigmaService {
       scale?: number
     } = {}
   ): Promise<FigmaApiResponse<{ imageUrl: string }>> {
+    const cacheKey = this.getImageCacheKey(
+      fileId,
+      nodeId,
+      options.format,
+      options.scale
+    )
+    const cachedImage = this.getCachedImageUrl(cacheKey)
+    if (cachedImage) {
+      return {
+        success: true,
+        data: { imageUrl: cachedImage }
+      }
+    }
+
     const metadataResponse = await this.getMetadata(window.location.href)
     if (!metadataResponse.success || !metadataResponse.data) {
       return {
@@ -396,9 +465,129 @@ export class FigmaService {
         }
       }
 
+      this.setCachedImageUrl(cacheKey, imageResult as string)
+
       return {
         success: true,
         data: { imageUrl: imageResult as string }
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown Figma error"
+      }
+    }
+  }
+
+  async getFigmaNodeImages(
+    fileId: string,
+    nodeIds: string[],
+    options: {
+      format?: "jpg" | "png" | "svg"
+      scale?: number
+    } = {}
+  ): Promise<FigmaApiResponse<Record<string, string>>> {
+    const uniqueNodeIds = Array.from(
+      new Set(nodeIds.filter((nodeId) => nodeId))
+    )
+
+    if (uniqueNodeIds.length === 0) {
+      return { success: true, data: {} }
+    }
+
+    const cachedImages: Record<string, string> = {}
+    const missingNodeIds: string[] = []
+
+    for (const nodeId of uniqueNodeIds) {
+      const cacheKey = this.getImageCacheKey(
+        fileId,
+        nodeId,
+        options.format,
+        options.scale
+      )
+      const cachedImage = this.getCachedImageUrl(cacheKey)
+      if (cachedImage) {
+        cachedImages[nodeId] = cachedImage
+      } else {
+        missingNodeIds.push(nodeId)
+      }
+    }
+
+    if (missingNodeIds.length === 0) {
+      return { success: true, data: cachedImages }
+    }
+
+    const metadataResponse = await this.getMetadata(window.location.href)
+    if (!metadataResponse.success || !metadataResponse.data) {
+      return {
+        success: false,
+        error: metadataResponse.error || "Failed to load Figma metadata"
+      }
+    }
+
+    const accessToken = metadataResponse.data.token?.accessToken
+    if (!accessToken) {
+      return {
+        success: false,
+        error: metadataResponse.data.token?.error || "Missing Figma token"
+      }
+    }
+
+    const params = new URLSearchParams()
+    params.set("ids", missingNodeIds.join(","))
+    if (options.format) {
+      params.set("format", options.format)
+    }
+    if (options.scale) {
+      params.set("scale", options.scale.toString())
+    }
+
+    const imageUrl = `https://api.figma.com/v1/images/${fileId}?${params.toString()}`
+
+    try {
+      const response = await fetch(imageUrl, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          Pragma: "no-cache",
+          Expires: "0"
+        }
+      })
+
+      if (!response.ok) {
+        return {
+          success: false,
+          error: `Failed to fetch Figma images: ${response.status}`
+        }
+      }
+
+      const json = await response.json()
+      const images = (json.images ?? {}) as Record<string, string>
+
+      if (!images || Object.keys(images).length === 0) {
+        return {
+          success: false,
+          error: "Image URLs not found in response"
+        }
+      }
+
+      Object.entries(images).forEach(([nodeId, resolvedUrl]) => {
+        if (!resolvedUrl) return
+        const cacheKey = this.getImageCacheKey(
+          fileId,
+          nodeId,
+          options.format,
+          options.scale
+        )
+        this.setCachedImageUrl(cacheKey, resolvedUrl)
+      })
+
+      return {
+        success: true,
+        data: {
+          ...cachedImages,
+          ...images
+        }
       }
     } catch (error) {
       return {

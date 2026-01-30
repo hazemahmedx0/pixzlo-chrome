@@ -6,6 +6,7 @@
  */
 
 import type { FigmaNode } from "@/types/figma"
+
 import { PIXZLO_WEB_URL } from "~lib/constants"
 import { clearTokenCache } from "~lib/figma-direct-api"
 
@@ -26,7 +27,9 @@ export async function handleFigmaGetFile(fileId: string): Promise<{
       id: string
       name: string
       type: string
-      absoluteBoundingBox: { x: number; y: number; width: number; height: number } | undefined
+      absoluteBoundingBox:
+        | { x: number; y: number; width: number; height: number }
+        | undefined
     }>
     document: FigmaNode | undefined
   }
@@ -52,7 +55,9 @@ export async function handleFigmaGetFile(fileId: string): Promise<{
       data: {
         id: fileId,
         name: figmaData?.name,
-        pages: (documentNode as FigmaNode & { children?: FigmaNode[] })?.children || [],
+        pages:
+          (documentNode as FigmaNode & { children?: FigmaNode[] })?.children ||
+          [],
         frames,
         document: documentNode
       }
@@ -70,12 +75,15 @@ export async function handleFigmaGetFile(fileId: string): Promise<{
  * Handles the FIGMA_RENDER_FRAME message.
  * Renders a Figma frame and extracts element information.
  */
-export async function handleFigmaRenderFrame(figmaUrl: string): Promise<{
+export async function handleFigmaRenderFrame(
+  figmaUrl: string,
+  force?: boolean
+): Promise<{
   success: boolean
   data?: unknown
   error?: string
 }> {
-  return FigmaService.renderFrame(figmaUrl)
+  return FigmaService.renderFrame(figmaUrl, { force })
 }
 
 /**
@@ -155,23 +163,28 @@ export async function handleFigmaOAuth(
 ): Promise<void> {
   try {
     // Get workspace ID from message or storage
-    const workspaceId = messageWorkspaceId || await WorkspaceService.getUserActiveWorkspaceId()
+    const workspaceId =
+      messageWorkspaceId || (await WorkspaceService.getUserActiveWorkspaceId())
 
     if (!workspaceId) {
       sendResponse?.({
         success: false,
-        error: "No workspace selected. Open the Pixzlo extension popup and select a workspace."
+        error:
+          "No workspace selected. Open the Pixzlo extension popup and select a workspace."
       })
       return
     }
 
     // Get auth URL from backend
-    const response = await fetch(`${PIXZLO_WEB_URL}/api/integrations/figma/auth`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ workspaceId })
-    })
+    const response = await fetch(
+      `${PIXZLO_WEB_URL}/api/integrations/figma/auth`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ workspaceId })
+      }
+    )
 
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`)
