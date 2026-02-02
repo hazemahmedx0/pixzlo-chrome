@@ -6,6 +6,11 @@ import {
   SelectTrigger,
   SelectValue
 } from "@/components/ui/select"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger
+} from "@/components/ui/tooltip"
 import { useFigmaPreferences } from "@/hooks/use-figma-preferences"
 import { useFigmaDataStore } from "@/stores/figma-data"
 import { useFigmaToolbarStore, type FigmaFrame } from "@/stores/figma-toolbar"
@@ -55,7 +60,7 @@ const FigmaToolbar = memo(
     const availableFrames = propsFrames ?? storeAvailableFrames
 
     const { preference, hasPreferenceForWebsite } = useFigmaPreferences()
-    const { fetchMetadata: refreshFigmaMetadata } = useFigmaDataStore()
+    const { refreshMetadata: refreshFigmaMetadata } = useFigmaDataStore()
 
     const [hasAutoSelectedFrame, setHasAutoSelectedFrame] = useState(false)
 
@@ -81,14 +86,11 @@ const FigmaToolbar = memo(
         return undefined
       }
       return sortedFrames.find(
-        (frame) => frame.id === preference.lastUsedFrameId
+        (frame) =>
+          frame.figmaFrameId === preference.lastUsedFrameId ||
+          frame.id === preference.lastUsedFrameId
       )
-    }, [
-      sortedFrames,
-      preference,
-      hasPreferenceForWebsite,
-      currentWebsiteUrl
-    ])
+    }, [sortedFrames, preference, hasPreferenceForWebsite, currentWebsiteUrl])
 
     // Auto-select frame when needed (only on initial load)
     useEffect(() => {
@@ -143,11 +145,17 @@ const FigmaToolbar = memo(
     const handleRefresh = useCallback(async (): Promise<void> => {
       try {
         setIsRefreshing(true)
-        await Promise.all([onRefreshFrames?.(), refreshFigmaMetadata()])
+        await refreshFigmaMetadata(currentWebsiteUrl, { force: true })
+        await onRefreshFrames?.()
       } finally {
         setIsRefreshing(false)
       }
-    }, [onRefreshFrames, refreshFigmaMetadata, setIsRefreshing])
+    }, [
+      onRefreshFrames,
+      refreshFigmaMetadata,
+      setIsRefreshing,
+      currentWebsiteUrl
+    ])
 
     const handleOpenInFigma = useCallback((): void => {
       if (currentFrame) {
@@ -176,40 +184,66 @@ const FigmaToolbar = memo(
                 onValueChange={(frameId) => {
                   handleFrameSelect(frameId)
                 }}>
-                <SelectTrigger className="h-8 w-44 bg-gray-100">
-                  <SelectValue placeholder="Select design" />
-                </SelectTrigger>
+                <Tooltip delayDuration={400}>
+                  <TooltipTrigger asChild>
+                    <SelectTrigger className="h-8 w-60 min-w-0 bg-gray-100 [&>span:first-child]:min-w-0 [&>span:first-child]:overflow-hidden [&>span:first-child]:text-ellipsis [&>span:first-child]:whitespace-nowrap">
+                      <SelectValue placeholder="Select design" />
+                    </SelectTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent
+                    side="top"
+                    sideOffset={8}
+                    className="max-w-xs">
+                    <p className="font-medium">
+                      {currentFrame?.name ??
+                        preferredFrame?.name ??
+                        sortedFrames[0]?.name ??
+                        "Select design"}
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
                 <SelectContent
                   position="popper"
                   side="top"
                   sideOffset={8}
-                  className="z-[2147483650]">
-                  {sortedFrames.map((frame) => (
-                    <SelectItem key={frame.id} value={frame.id}>
-                      <div className="flex items-center gap-2">
-                        {frame.imageUrl && (
-                          <div className="h-4 w-6 overflow-hidden rounded border bg-gray-100">
-                            <img
-                              src={frame.imageUrl}
-                              alt={frame.name}
-                              className="h-full w-full object-cover"
-                            />
-                          </div>
-                        )}
-                        <span className="flex items-center gap-1 truncate">
-                          {frame.name}
-                          {preference &&
-                            hasPreferenceForWebsite(currentWebsiteUrl) &&
-                            frame.figmaFrameId ===
-                              preference.lastUsedFrameId && (
-                              <span className="text-[10px] uppercase text-green-600">
-                                Default
-                              </span>
+                  className="z-[2147483650] w-auto min-w-[var(--radix-select-trigger-width)]">
+                  {sortedFrames.map((frame) => {
+                    const isDefaultFrame =
+                      preference &&
+                      hasPreferenceForWebsite(currentWebsiteUrl) &&
+                      (frame.figmaFrameId === preference.lastUsedFrameId ||
+                        frame.id === preference.lastUsedFrameId)
+
+                    return (
+                      <SelectItem
+                        key={frame.id}
+                        value={frame.id}
+                        textValue={frame.name}
+                        title={frame.name}
+                        className="whitespace-nowrap">
+                        <div className="flex w-full items-center gap-2">
+                          {frame.imageUrl && (
+                            <div className="h-4 w-6 shrink-0 overflow-hidden rounded border bg-gray-100">
+                              <img
+                                src={frame.imageUrl}
+                                alt={frame.name}
+                                className="h-full w-full object-cover"
+                              />
+                            </div>
+                          )}
+                          <div className="flex items-center gap-2">
+                            <span>{frame.name}</span>
+                            {isDefaultFrame && (
+                              <span
+                                className="h-2 w-2 shrink-0 rounded-full bg-green-500"
+                                aria-label="Default frame"
+                              />
                             )}
-                        </span>
-                      </div>
-                    </SelectItem>
-                  ))}
+                          </div>
+                        </div>
+                      </SelectItem>
+                    )
+                  })}
                 </SelectContent>
               </Select>
             )}

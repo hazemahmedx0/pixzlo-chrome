@@ -12,6 +12,15 @@ interface FigmaDesignData {
   figmaUrl: string
 }
 
+export interface LocalFigmaDesign {
+  id: string
+  figma_file_id: string
+  figma_frame_id: string
+  frame_name?: string
+  frame_url: string
+  thumbnail_url?: string
+}
+
 interface FigmaProperties {
   width?: number
   height?: number
@@ -60,6 +69,8 @@ interface PixzloDialogState {
   isFigmaFlowActive: boolean
   figmaDesigns: FigmaDesignLink[]
   figmaDesignsLoading: boolean
+  localFigmaDesigns: LocalFigmaDesign[]
+  needsFigmaMetadataRefresh: boolean
   selectedProperties: Set<string> // Store selected CSS properties
 
   // Actions
@@ -80,6 +91,9 @@ interface PixzloDialogState {
   setIsFigmaFlowActive: (active: boolean) => void
   setFigmaDesigns: (designs: FigmaDesignLink[]) => void
   setFigmaDesignsLoading: (loading: boolean) => void
+  addLocalFigmaDesign: (design: LocalFigmaDesign) => void
+  clearLocalFigmaDesigns: () => void
+  setNeedsFigmaMetadataRefresh: (needs: boolean) => void
   setSelectedProperties: (properties: Set<string>) => void
   toggleProperty: (propertyName: string) => void
   toggleSelectAll: () => void
@@ -112,6 +126,8 @@ export const usePixzloDialogStore = create<PixzloDialogState>((set, get) => ({
   isFigmaFlowActive: false,
   figmaDesigns: [],
   figmaDesignsLoading: false,
+  localFigmaDesigns: [],
+  needsFigmaMetadataRefresh: false,
   selectedProperties: new Set<string>(), // All properties selected by default
 
   // Basic Setters
@@ -139,6 +155,33 @@ export const usePixzloDialogStore = create<PixzloDialogState>((set, get) => ({
   setFigmaDesigns: (figmaDesigns: FigmaDesignLink[]) => set({ figmaDesigns }),
   setFigmaDesignsLoading: (figmaDesignsLoading: boolean) =>
     set({ figmaDesignsLoading }),
+  addLocalFigmaDesign: (design: LocalFigmaDesign) =>
+    set((state) => {
+      const existingIndex = state.localFigmaDesigns.findIndex(
+        (existing) =>
+          existing.figma_frame_id === design.figma_frame_id ||
+          existing.frame_url === design.frame_url
+      )
+      if (existingIndex >= 0) {
+        const existing = state.localFigmaDesigns[existingIndex]
+        const updated = {
+          ...existing,
+          ...design,
+          id: existing.id
+        }
+        return {
+          localFigmaDesigns: state.localFigmaDesigns.map((item, index) =>
+            index === existingIndex ? updated : item
+          )
+        }
+      }
+      return {
+        localFigmaDesigns: [...state.localFigmaDesigns, design]
+      }
+    }),
+  clearLocalFigmaDesigns: () => set({ localFigmaDesigns: [] }),
+  setNeedsFigmaMetadataRefresh: (needsFigmaMetadataRefresh: boolean) =>
+    set({ needsFigmaMetadataRefresh }),
   setSelectedProperties: (selectedProperties: Set<string>) =>
     set({ selectedProperties }),
   toggleProperty: (propertyName: string) => {
@@ -217,6 +260,7 @@ export const usePixzloDialogStore = create<PixzloDialogState>((set, get) => ({
       isFigmaFlowActive: false,
       figmaDesigns: [],
       figmaDesignsLoading: false,
+      localFigmaDesigns: [],
       selectedProperties: new Set<string>()
     })
   },
@@ -239,7 +283,7 @@ export const usePixzloDialogStore = create<PixzloDialogState>((set, get) => ({
     return {
       title: state.title || "Untitled Issue",
       description: state.description,
-      priority: "urgent",
+      priority: "low",
       screenshots: state.screenshots,
       metadata: currentScreenshot.metadata
     }
