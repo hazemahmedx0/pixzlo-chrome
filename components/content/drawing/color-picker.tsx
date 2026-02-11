@@ -1,12 +1,11 @@
+"use client"
+
 import {
   Popover,
   PopoverContent,
   PopoverTrigger
 } from "@/components/ui/popover"
-import { memo } from "react"
-import { SketchPicker } from "react-color"
-
-import { EXTENDED_COLORS, isValidHexColor, MAIN_COLORS } from "./drawing-utils"
+import { memo, useCallback, useState } from "react"
 
 interface ColorPickerProps {
   color: string
@@ -14,10 +13,43 @@ interface ColorPickerProps {
   className?: string
 }
 
+const PALETTE_COLORS = [
+  "#1e1e1e",
+  "#f24822",
+  "#ff9e42",
+  "#ffc943",
+  "#66d575",
+  "#3dadff",
+  "#874fff",
+  "#ffffff"
+] as const
+
+/**
+ * Darkens a hex color by a given percentage (0–100).
+ * Returns a hex string like "#rrggbb".
+ */
+function darkenColor(hex: string, percent: number): string {
+  const num = parseInt(hex.replace("#", ""), 16)
+  const r = Math.max(0, Math.round(((num >> 16) & 0xff) * (1 - percent / 100)))
+  const g = Math.max(0, Math.round(((num >> 8) & 0xff) * (1 - percent / 100)))
+  const b = Math.max(0, Math.round((num & 0xff) * (1 - percent / 100)))
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")}`
+}
+
 const ColorPicker = memo(
-  ({ color, onColorChange, className = "" }: ColorPickerProps) => {
+  ({ color, onColorChange }: ColorPickerProps) => {
+    const [open, setOpen] = useState(false)
+
+    const handleSelect = useCallback(
+      (c: string) => {
+        onColorChange(c)
+        setOpen(false)
+      },
+      [onColorChange]
+    )
+
     return (
-      <Popover>
+      <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <button
             type="button"
@@ -35,7 +67,7 @@ const ColorPicker = memo(
         </PopoverTrigger>
 
         <PopoverContent
-          className="w-auto rounded-[13px] border-0 bg-[var(--color-white-solid,#FFF)] p-3"
+          className="w-auto rounded-[13px] border-0 bg-[var(--color-white-solid,#FFF)] p-2.5"
           align="start"
           side="bottom"
           sideOffset={4}
@@ -44,27 +76,50 @@ const ColorPicker = memo(
             boxShadow:
               "0 3px 5.9px -1.5px rgba(0, 0, 0, 0.05), 0 1px 2.1px 0 rgba(0, 0, 0, 0.05), 0 0 0 0.5px rgba(0, 0, 0, 0.18)"
           }}>
-          <SketchPicker
-            color={color}
-            onChange={(colorResult) => {
-              onColorChange(colorResult.hex)
-            }}
-            disableAlpha
-            presetColors={[]}
-            styles={{
-              default: {
-                picker: {
-                  width: "220px",
-                  boxShadow: "none",
-                  border: "none",
-                  borderRadius: "0",
-                  fontFamily: "inherit",
-                  background: "transparent",
-                  padding: "0"
-                }
-              }
-            }}
-          />
+          <div className="grid grid-cols-4 gap-2">
+            {PALETTE_COLORS.map((paletteColor) => {
+              const isSelected =
+                color.toLowerCase() === paletteColor.toLowerCase()
+              const innerBorder = darkenColor(paletteColor, 5)
+              const isWhite = paletteColor === "#ffffff"
+
+              return (
+                <button
+                  key={paletteColor}
+                  type="button"
+                  onClick={() => handleSelect(paletteColor)}
+                  className="relative flex h-[28px] w-[28px] items-center justify-center focus:outline-none"
+                  title={paletteColor}
+                  aria-label={`Select color ${paletteColor}`}
+                  aria-pressed={isSelected}>
+                  {/* Selection ring */}
+                  {isSelected && (
+                    <span
+                      className="pointer-events-none absolute inset-0 rounded-full"
+                      style={{
+                        boxShadow: `0 0 0 1.5px ${isWhite ? "#a0a0a0" : paletteColor}`,
+                        top: -3,
+                        left: -3,
+                        right: -3,
+                        bottom: -3
+                      }}
+                    />
+                  )}
+
+                  {/* Color circle */}
+                  <span
+                    className="block h-[28px] w-[28px] rounded-full"
+                    style={{
+                      backgroundColor: paletteColor,
+                      boxShadow: isWhite
+                        ? `inset 0 0 0 1.5px ${innerBorder}, inset 0 0 0 1px rgba(0, 0, 0, 0.12)`
+                        : `inset 0 0 0 1.5px ${innerBorder}`
+                    }}
+                  />
+                </button>
+              )
+            })}
+          </div>
         </PopoverContent>
       </Popover>
     )

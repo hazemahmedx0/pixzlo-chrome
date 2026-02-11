@@ -9,11 +9,17 @@ const FONT_FAMILY =
   'Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif'
 
 // Toast store for managing toasts within shadow root
+interface ToastAction {
+  label: string
+  onClick: () => void
+}
+
 interface Toast {
   id: string
   type: "success" | "error" | "info"
   title: string
   description?: string
+  action?: ToastAction
 }
 
 interface ToastStore {
@@ -37,27 +43,35 @@ const useToastStore = create<ToastStore>((set) => ({
     }))
 }))
 
+interface ToastOptions {
+  description?: string
+  action?: ToastAction
+}
+
 // Custom toast function to use instead of sonner's toast
 export const toast = {
-  success: (title: string, options?: { description?: string }): void => {
+  success: (title: string, options?: ToastOptions): void => {
     useToastStore.getState().addToast({
       type: "success",
       title,
-      description: options?.description
+      description: options?.description,
+      action: options?.action
     })
   },
-  error: (title: string, options?: { description?: string }): void => {
+  error: (title: string, options?: ToastOptions): void => {
     useToastStore.getState().addToast({
       type: "error",
       title,
-      description: options?.description
+      description: options?.description,
+      action: options?.action
     })
   },
-  info: (title: string, options?: { description?: string }): void => {
+  info: (title: string, options?: ToastOptions): void => {
     useToastStore.getState().addToast({
       type: "info",
       title,
-      description: options?.description
+      description: options?.description,
+      action: options?.action
     })
   }
 }
@@ -167,6 +181,30 @@ const ToastItem = ({
             {t.description}
           </p>
         )}
+        {t.action && (
+          <button
+            onClick={() => {
+              try {
+                t.action?.onClick()
+              } catch {
+                // Ignore action callback errors and still close toast
+              }
+              handleClose()
+            }}
+            style={{
+              marginTop: "8px",
+              border: "none",
+              background: "transparent",
+              color: "rgb(31, 130, 232)",
+              fontSize: "13px",
+              fontWeight: 600,
+              lineHeight: 1.4,
+              cursor: "pointer",
+              padding: 0
+            }}>
+            {t.action.label}
+          </button>
+        )}
       </div>
       <button
         onClick={handleClose}
@@ -193,31 +231,20 @@ const ToastItem = ({
         }}>
         <X style={{ width: "16px", height: "16px" }} />
       </button>
-      <style>{`
-        @keyframes toast-slide-in {
-          from {
-            opacity: 0;
-            transform: translateY(-12px) scale(0.96);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0) scale(1);
-          }
-        }
-        @keyframes toast-slide-out {
-          from {
-            opacity: 1;
-            transform: translateY(0) scale(1);
-          }
-          to {
-            opacity: 0;
-            transform: translateY(-8px) scale(0.96);
-          }
-        }
-      `}</style>
     </div>
   )
 }
+
+const TOAST_KEYFRAMES = `
+@keyframes toast-slide-in {
+  from { opacity: 0; transform: translateY(-12px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes toast-slide-out {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to   { opacity: 0; transform: translateY(-8px) scale(0.96); }
+}
+`
 
 const Toaster = (): JSX.Element | null => {
   const { toasts, removeToast } = useToastStore()
@@ -241,6 +268,7 @@ const Toaster = (): JSX.Element | null => {
         fontFamily: FONT_FAMILY
       }}
       data-pixzlo-ui="toast-container">
+      <style>{TOAST_KEYFRAMES}</style>
       {toasts.map((t) => (
         <ToastItem key={t.id} toast={t} onClose={() => removeToast(t.id)} />
       ))}

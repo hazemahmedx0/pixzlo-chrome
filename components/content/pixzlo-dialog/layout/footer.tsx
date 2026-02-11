@@ -6,6 +6,7 @@ import type {
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { useIssueSubmissionWithPreferences } from "@/hooks/use-issue-submission-with-preferences"
+import type { IssueCreatedResult } from "@/hooks/use-issue-submission-with-preferences"
 import { useLinearIntegration } from "@/hooks/use-linear-integration"
 import { PIXZLO_WEB_URL } from "@/lib/constants"
 import { useLinearDataStore } from "@/stores/linear-data"
@@ -14,7 +15,7 @@ import { memo, useCallback, useEffect, useState } from "react"
 interface FooterProps {
   onCancel: () => void
   onSubmit: () => void
-  onIssueCreated?: () => void
+  onIssueCreated?: (result?: IssueCreatedResult) => void
   issueTitle?: string
   issueDescription?: string
 }

@@ -14,6 +14,7 @@ import {
 import { useFigmaPreferences } from "@/hooks/use-figma-preferences"
 import { useFigmaDataStore } from "@/stores/figma-data"
 import { useFigmaToolbarStore, type FigmaFrame } from "@/stores/figma-toolbar"
+import { usePixzloDialogStore } from "@/stores/pixzlo-dialog"
 import {
   ArrowsClockwiseIcon,
   ArrowUpRightIcon,
@@ -61,6 +62,7 @@ const FigmaToolbar = memo(
 
     const { preference, hasPreferenceForWebsite } = useFigmaPreferences()
     const { refreshMetadata: refreshFigmaMetadata } = useFigmaDataStore()
+    const getPageUrl = usePixzloDialogStore((state) => state.getPageUrl)
 
     const [hasAutoSelectedFrame, setHasAutoSelectedFrame] = useState(false)
 
@@ -68,10 +70,10 @@ const FigmaToolbar = memo(
     const onFrameChangeRef = useRef(onFrameChange)
     onFrameChangeRef.current = onFrameChange
 
-    // Get current website URL
+    // Get current website URL - use getPageUrl() for correct URL in tab page context
     const currentWebsiteUrl = useMemo(() => {
-      return window.location.href
-    }, [])
+      return getPageUrl()
+    }, [getPageUrl])
 
     // Use frames - props take priority over store for guaranteed sync
     const sortedFrames = useMemo(() => [...availableFrames], [availableFrames])

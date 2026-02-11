@@ -111,4 +111,12 @@ export function setupExtensionLifecycleHandlers(): void {
       }
     }
   })
+
+  // Clean up stale capture sessions on service-worker startup.
+  // Importing dynamically to avoid circular dependency issues.
+  import("./capture-handlers")
+    .then(({ cleanupStaleSessions }) => cleanupStaleSessions())
+    .catch(() => {
+      // Cleanup failed on startup; will retry before next tab open.
+    })
 }

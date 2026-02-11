@@ -77,6 +77,10 @@ export interface DrawingCanvasProps {
   imageUrl: string
   width: number
   height: number
+  /** Konva stage scaleX – used for zoom. Defaults to 1. */
+  scaleX?: number
+  /** Konva stage scaleY – used for zoom. Defaults to 1. */
+  scaleY?: number
   onElementsChange?: (elements: DrawingElement[]) => void
   initialElements?: DrawingElement[]
   className?: string

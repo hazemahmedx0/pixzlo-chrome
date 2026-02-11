@@ -1,4 +1,5 @@
 import { FigmaService } from "@/lib/figma-service"
+import { getPageUrl } from "@/lib/page-url"
 import { getSelectedWorkspaceId } from "@/stores/workspace-store"
 import type { FigmaAuthStatus, FigmaDesignLink } from "@/types/figma"
 import { create } from "zustand"
@@ -128,7 +129,7 @@ export const useFigmaDataStore = create<FigmaDataState>((set, get) => ({
         return url
       }
     }
-    const urlToUse = normalizeUrl(websiteUrl ?? window.location.href)
+    const urlToUse = normalizeUrl(websiteUrl ?? getPageUrl())
     const resolvedWorkspaceId =
       options?.workspaceId ?? (await getSelectedWorkspaceId()) ?? null
 
@@ -257,7 +258,7 @@ export const useFigmaDataStore = create<FigmaDataState>((set, get) => ({
     }
 
     // Refresh with current full URL to get the design links for this specific page
-    await get().refreshMetadata(window.location.href, { force: true })
+    await get().refreshMetadata(getPageUrl(), { force: true })
     return true
   },
 
@@ -271,7 +272,7 @@ export const useFigmaDataStore = create<FigmaDataState>((set, get) => ({
     }
 
     // Refresh with current full URL to update the design links for this specific page
-    await get().refreshMetadata(window.location.href, { force: true })
+    await get().refreshMetadata(getPageUrl(), { force: true })
     return true
   },
 

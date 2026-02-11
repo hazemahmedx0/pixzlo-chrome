@@ -17,6 +17,8 @@ export const CircleElement = memo(
       y={element.y}
       radius={element.radius}
       fill={element.fill}
+      perfectDrawEnabled={false}
+      shadowForStrokeEnabled={false}
     />
   )
 )

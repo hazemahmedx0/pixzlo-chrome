@@ -13,6 +13,8 @@
 
 import "~lib/console-silencer"
 
+import type { CaptureSessionData } from "@/types/session"
+
 import {
   // API handlers
   handleApiCall,
@@ -41,6 +43,7 @@ import {
   handleLinearFetchMetadata,
   handleLinearFetchPreference,
   handleLinearUpdatePreference,
+  handleOpenCaptureTab,
   handleOpenIntegrationsSettings,
   handleSubmitIssue,
   setupExtensionLifecycleHandlers
@@ -348,6 +351,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({
           success: false,
           error: error instanceof Error ? error.message : "Unknown error"
+        })
+      })
+    return true
+  }
+
+  if (msg.type === "OPEN_CAPTURE_TAB") {
+    // Add the sourceTabId from the sender (content script's tab)
+    const sessionData: CaptureSessionData = {
+      ...(msg.data as Omit<CaptureSessionData, "sourceTabId">),
+      sourceTabId: sender.tab?.id
+    }
+    handleOpenCaptureTab(sessionData)
+      .then(sendResponse)
+      .catch((error) => {
+        sendResponse({
+          success: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Failed to open capture tab"
         })
       })
     return true

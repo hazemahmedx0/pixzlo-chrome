@@ -18,6 +18,8 @@ export const RectangleElement = memo(
       width={element.width}
       height={element.height}
       fill={element.fill}
+      perfectDrawEnabled={false}
+      shadowForStrokeEnabled={false}
     />
   )
 )

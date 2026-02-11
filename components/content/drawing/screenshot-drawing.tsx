@@ -1,3 +1,4 @@
+import { IMAGE_OUTPUT_MIME, IMAGE_OUTPUT_QUALITY } from "@/lib/image-format"
 import type { DrawingElement, DrawingTool } from "@/types/drawing"
 import { memo, useCallback, useRef, useState } from "react"
 
@@ -121,8 +122,8 @@ const ScreenshotDrawing = memo(
           const stage = canvasRef.current.getStage()
           if (stage) {
             const dataUrl = stage.toDataURL({
-              mimeType: "image/png",
-              quality: 1
+              mimeType: IMAGE_OUTPUT_MIME,
+              quality: IMAGE_OUTPUT_QUALITY
             })
             onSave(elements, dataUrl)
           }

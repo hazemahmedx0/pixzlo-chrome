@@ -10,7 +10,7 @@ interface UseDialogSubmissionReturn {
 export const useDialogSubmission = (
   onSubmit?: (issueData: IssueData) => void
 ): UseDialogSubmissionReturn => {
-  const { createIssueData } = usePixzloDialogStore()
+  const createIssueData = usePixzloDialogStore((state) => state.createIssueData)
 
   const handleSubmit = useCallback(() => {
     const issueData = createIssueData()
@@ -47,8 +47,20 @@ export const useDialogSubmission = (
             screenshots?.[state.activeImageIndex || 0]?.compositeImageUrl ||
             screenshots?.[0]?.dataUrl
 
-          // Prefer Konva overlay export when available to ensure drawings are preserved
-          const overlay = state.drawingOverlayDataUrl || null
+          // Export drawing overlay on demand to avoid blocking the UI after
+          // every stroke while still keeping submission images up to date.
+          let overlay = state.drawingOverlayDataUrl || null
+          if (state.drawingOverlayExporter) {
+            try {
+              const latestOverlay = state.drawingOverlayExporter()
+              if (latestOverlay) {
+                overlay = latestOverlay
+                state.setDrawingOverlayDataUrl(latestOverlay)
+              }
+            } catch {
+              // Fall back to the last cached overlay in store.
+            }
+          }
 
           // Create annotated image with drawings
           let annotated: string | undefined = baseImage
@@ -196,9 +208,7 @@ export const useDialogSubmission = (
                 ?.writeText(url)
                 .then(() => {
                   // Show success feedback to user
-                  alert(
-                    "Issue created successfully! URL copied to clipboard."
-                  )
+                  alert("Issue created successfully! URL copied to clipboard.")
                 })
                 .catch(() => {
                   // Show URL to user if clipboard fails

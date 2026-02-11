@@ -4,7 +4,7 @@ import type { DrawingElement, DrawingTool } from "@/types/drawing"
  * Drawing tool constants and utilities
  */
 export const DRAWING_CONSTANTS = {
-  DEFAULT_COLOR: "#ef4444", // red
+  DEFAULT_COLOR: "#f24822", // red
   DEFAULT_STROKE_WIDTH: 2,
   DEFAULT_FONT_SIZE: 16,
   DEFAULT_FONT_FAMILY: "Arial",
@@ -27,31 +27,17 @@ export const DRAWING_TOOLS = [
 ] as const
 
 /**
- * Main color palette for quick selection
+ * Drawing color palette (4×2 grid)
  */
-export const MAIN_COLORS = [
-  "#ef4444", // red (default)
-  "#3b82f6", // blue
-  "#22c55e", // green
-  "#eab308" // yellow
-] as const
-
-/**
- * Extended color palette for more options
- */
-export const EXTENDED_COLORS = [
-  "#f97316", // orange
-  "#8b5cf6", // violet
-  "#ec4899", // pink
-  "#000000", // black
-  "#ffffff", // white
-  "#6b7280", // gray
-  "#f59e0b", // amber
-  "#10b981", // emerald
-  "#06b6d4", // cyan
-  "#a855f7", // purple (different shade)
-  "#f43f5e", // rose
-  "#84cc16" // lime
+export const PALETTE_COLORS = [
+  "#1e1e1e", // dark
+  "#f24822", // red
+  "#ff9e42", // orange
+  "#ffc943", // yellow
+  "#66d575", // green
+  "#3dadff", // blue
+  "#874fff", // purple
+  "#ffffff" // white
 ] as const
 
 /**

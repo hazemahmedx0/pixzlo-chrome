@@ -1,6 +1,7 @@
 import "@/lib/console-silencer"
 
 import EnhancedElementSelector from "@/components/content/enhanced-element-selector"
+import { toast, Toaster } from "@/components/ui/sonner"
 import { PIXZLO_APP_URL } from "@/lib/constants"
 import { usePixzloDialogStore } from "@/stores/pixzlo-dialog"
 import cssText from "data-text:~globals.css"
@@ -89,18 +90,23 @@ if (isPixzloDomain) {
 // Add window property for debugging
 ;(window as any).__PIXZLO_CONTENT_SCRIPT_LOADED__ = true
 
+interface IssueCreatedToastData {
+  issueUrl?: string
+  trackedIssueUrl?: string
+  copiedToClipboard?: boolean
+}
+
+type CaptureMode = "pointer" | "element" | "area" | "fullscreen"
+
 // Create a wrapper component that only renders when active
 const ConditionalExtension = () => {
   const [shouldMount, setShouldMount] = useState(false)
-  const [captureMode, setCaptureMode] = useState<string>("element")
+  const [captureMode, setCaptureMode] = useState<CaptureMode>("element")
 
   // Handle reset from child component
   const handleReset = useCallback(() => {
     try {
-      const storeState = (usePixzloDialogStore as any).getState?.()
-      if (!storeState) {
-        throw new Error("Pixzlo dialog store not available")
-      }
+      const storeState = usePixzloDialogStore.getState()
 
       if (
         storeState.isFigmaFlowActive ||
@@ -119,7 +125,11 @@ const ConditionalExtension = () => {
 
   useEffect(() => {
     const listener = (
-      message: { type?: string; mode?: string },
+      message: {
+        type?: string
+        mode?: string
+        data?: IssueCreatedToastData
+      },
       _sender: chrome.runtime.MessageSender,
       sendResponse: (response?: unknown) => void
     ): boolean => {
@@ -131,7 +141,7 @@ const ConditionalExtension = () => {
 
         if (message.type === "start-element-selection") {
           setShouldMount(true)
-          setCaptureMode(message.mode || "element")
+          setCaptureMode((message.mode as CaptureMode) || "element")
           sendResponse({ success: true, mounted: true, mode: message.mode })
           return true // Keep message channel open for async response
         }
@@ -139,6 +149,30 @@ const ConditionalExtension = () => {
         if (message.type === "reset-element-selection") {
           handleReset()
           sendResponse({ success: true, reset: true })
+          return true
+        }
+
+        if (message.type === "SHOW_ISSUE_CREATED_TOAST") {
+          const issueUrl = message.data?.issueUrl
+          const trackedIssueUrl = message.data?.trackedIssueUrl
+          const copiedToClipboard = message.data?.copiedToClipboard === true
+          const issueLink = trackedIssueUrl || issueUrl
+
+          toast.success("Issue created successfully!", {
+            description: copiedToClipboard
+              ? "URL copied to clipboard"
+              : "Your issue is ready",
+            action: issueLink
+              ? {
+                  label: "View issue",
+                  onClick: () => {
+                    window.open(issueLink, "_blank", "noopener,noreferrer")
+                  }
+                }
+              : undefined
+          })
+
+          sendResponse({ success: true, shown: true })
           return true
         }
       } catch (error) {
@@ -154,38 +188,29 @@ const ConditionalExtension = () => {
       try {
         chrome.runtime.onMessage.addListener(listener)
 
-        // Send periodic heartbeat for debugging
-        const heartbeatInterval = setInterval(() => {
-          // Content script heartbeat - still alive
-        }, 5000) // Every 5 seconds
-
-        // Clear heartbeat on cleanup
-        const originalCleanup = () => {
-          clearInterval(heartbeatInterval)
+        return () => {
           try {
             chrome.runtime.onMessage.removeListener(listener)
           } catch {
             // Extension context invalidated during cleanup
           }
         }
-
-        return originalCleanup
       } catch {
         // Failed to register message listener
       }
     }
   }, [])
 
-  // Only render the actual extension when shouldMount is true
-  if (!shouldMount) {
-    return null
-  }
-
   return (
-    <EnhancedElementSelector
-      initialMode={captureMode as any}
-      onReset={handleReset}
-    />
+    <>
+      <Toaster />
+      {shouldMount ? (
+        <EnhancedElementSelector
+          initialMode={captureMode}
+          onReset={handleReset}
+        />
+      ) : null}
+    </>
   )
 }
 

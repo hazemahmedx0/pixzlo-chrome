@@ -35,6 +35,7 @@ export type MessageType =
   | "capture-screen"
   | "CAPTURE_ELEMENT_SCREENSHOT"
   | "FETCH_IMAGE_DATA_URL"
+  | "OPEN_CAPTURE_TAB"
   // API calls
   | "API_CALL"
   | "dummy-api-call"
@@ -42,6 +43,8 @@ export type MessageType =
   | "SUBMIT_ISSUE"
   // Pages tree
   | "FETCH_PAGES_TREE"
+  // Content script UI events
+  | "SHOW_ISSUE_CREATED_TOAST"
 
 /**
  * Base message structure for all extension messages
@@ -151,6 +154,55 @@ export interface CaptureElementScreenshotMessage extends BaseMessage {
 export interface FetchImageDataUrlMessage extends BaseMessage {
   type: "FETCH_IMAGE_DATA_URL"
   url: string
+}
+
+/**
+ * Message for opening capture tab with session data
+ */
+export interface OpenCaptureTabMessage extends BaseMessage {
+  type: "OPEN_CAPTURE_TAB"
+  data: {
+    sessionId: string
+    screenshots: Array<{
+      dataUrl: string
+      compositeImageUrl?: string
+      timestamp: number
+      type: "area" | "fullscreen" | "element"
+      metadata?: {
+        url: string
+        device: string
+        browser: string
+        screenResolution: string
+        viewportSize: string
+      }
+    }>
+    selectedElementInfo?: {
+      selector: string
+      tagName: string
+      id?: string
+      classNames: string[]
+      boundingRect: {
+        top: number
+        left: number
+        width: number
+        height: number
+      }
+      extractedCSS: {
+        selector: string
+        properties: Array<{
+          name: string
+          value: string
+          rawValue?: string
+          computedValue?: string
+          color?: string
+        }>
+      }
+      htmlSnippet?: string
+    }
+    createdAt: number
+    sourceUrl: string
+    sourceTabId?: number
+  }
 }
 
 /**
@@ -269,6 +321,18 @@ export interface LinearPreferenceUpdateMessage extends BaseMessage {
 }
 
 /**
+ * Message for showing issue-created toast in content script
+ */
+export interface ShowIssueCreatedToastMessage extends BaseMessage {
+  type: "SHOW_ISSUE_CREATED_TOAST"
+  data?: {
+    issueUrl?: string
+    trackedIssueUrl?: string
+    copiedToClipboard?: boolean
+  }
+}
+
+/**
  * Union type of all message types for type-safe message handling
  */
 export type ExtensionMessage =
@@ -283,8 +347,10 @@ export type ExtensionMessage =
   | CaptureScreenMessage
   | CaptureElementScreenshotMessage
   | FetchImageDataUrlMessage
+  | OpenCaptureTabMessage
   | SubmitIssueMessage
   | FigmaPreferenceMessage
   | FigmaMetadataMessage
   | FigmaDesignLinkMessage
   | LinearPreferenceUpdateMessage
+  | ShowIssueCreatedToastMessage

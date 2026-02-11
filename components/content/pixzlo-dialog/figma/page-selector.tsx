@@ -6,6 +6,7 @@ import {
 } from "@/components/ui/select"
 import { useFigmaDataStore } from "@/stores/figma-data"
 import { usePagesTreeStore, type PageTreeNode } from "@/stores/pages-tree"
+import { usePixzloDialogStore } from "@/stores/pixzlo-dialog"
 import { Globe, Plus } from "lucide-react"
 import { useCallback, useEffect, useMemo } from "react"
 
@@ -29,8 +30,11 @@ export function PageSelector(): JSX.Element {
   // Get figma data store to refresh designs when page changes
   const { fetchMetadata } = useFigmaDataStore()
 
-  // Current URL info
-  const currentUrl = useMemo(() => window.location.href, [])
+  // Get the correct page URL (handles tab page context)
+  const getPageUrl = usePixzloDialogStore((state) => state.getPageUrl)
+
+  // Current URL info - use getPageUrl() for correct URL in tab page context
+  const currentUrl = useMemo(() => getPageUrl(), [getPageUrl])
   const currentUrlInfo = useMemo(
     () => parseCurrentUrl(currentUrl),
     [currentUrl, parseCurrentUrl]
@@ -92,6 +96,16 @@ export function PageSelector(): JSX.Element {
     )
   }
 
+  // Check if we have a meaningful path (not just "/" or empty)
+  const hasPath = currentUrlInfo?.path && currentUrlInfo.path !== "/"
+
+  // Check if there are any saved pages for this site (to show the selector)
+  const hasSavedPages =
+    currentSiteInTree?.pages && currentSiteInTree.pages.length > 0
+
+  // Only show path selector if there's a path OR there are saved pages to choose from
+  const showPathSelector = hasPath || hasSavedPages
+
   return (
     <div className="flex items-center gap-2">
       <span className="text-label-sm text-gray-600">page:</span>
@@ -112,18 +126,23 @@ export function PageSelector(): JSX.Element {
         </span>
       </div>
 
-      <span className="text-gray-300">/</span>
+      {/* Only show path selector if there's a path or saved pages */}
+      {showPathSelector && (
+        <>
+          <span className="text-gray-300">/</span>
 
-      {/* Path selector */}
-      <PagePathSelector
-        sites={sites}
-        currentSite={currentSiteInTree}
-        currentUrlInfo={currentUrlInfo}
-        currentPageInTree={currentPageInTree}
-        selectedPageId={selectedPageId}
-        onUseCurrentPage={handleUseCurrentPage}
-        onSelectPage={handlePageSelect}
-      />
+          {/* Path selector */}
+          <PagePathSelector
+            sites={sites}
+            currentSite={currentSiteInTree}
+            currentUrlInfo={currentUrlInfo}
+            currentPageInTree={currentPageInTree}
+            selectedPageId={selectedPageId}
+            onUseCurrentPage={handleUseCurrentPage}
+            onSelectPage={handlePageSelect}
+          />
+        </>
+      )}
 
       {/* Show indicator if current page is new */}
       {!currentPageInTree && !selectedPageId && (

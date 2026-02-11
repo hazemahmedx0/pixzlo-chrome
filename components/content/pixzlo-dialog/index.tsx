@@ -36,30 +36,50 @@ const PixzloDialog = memo(
     onIssueCreated,
     selectedElement
   }: PixzloDialogProps): JSX.Element | null => {
-    const {
-      activeTab,
-      activeImageIndex,
-      includeFullscreen,
-      title,
-      description,
-      screenshots: storeScreenshots,
-      extractedCSS,
-      drawingElements,
-      figmaDesign,
-      figmaContext,
-      isFigmaPopupOpen,
-      setActiveTab,
-      setActiveImageIndex,
-      setIncludeFullscreen,
-      setTitle,
-      setDescription,
-      setDrawingElements,
-      setFigmaDesign,
-      setFigmaContext,
-      setIsFigmaPopupOpen,
-      openDialog,
-      closeDialog
-    } = usePixzloDialogStore()
+    const activeTab = usePixzloDialogStore((state) => state.activeTab)
+    const activeImageIndex = usePixzloDialogStore(
+      (state) => state.activeImageIndex
+    )
+    const includeFullscreen = usePixzloDialogStore(
+      (state) => state.includeFullscreen
+    )
+    const title = usePixzloDialogStore((state) => state.title)
+    const description = usePixzloDialogStore((state) => state.description)
+    const storeScreenshots = usePixzloDialogStore((state) => state.screenshots)
+    const extractedCSS = usePixzloDialogStore((state) => state.extractedCSS)
+    const figmaDesign = usePixzloDialogStore((state) => state.figmaDesign)
+    const figmaContext = usePixzloDialogStore((state) => state.figmaContext)
+    const isFigmaPopupOpen = usePixzloDialogStore(
+      (state) => state.isFigmaPopupOpen
+    )
+
+    const setActiveTab = usePixzloDialogStore((state) => state.setActiveTab)
+    const setActiveImageIndex = usePixzloDialogStore(
+      (state) => state.setActiveImageIndex
+    )
+    const setIncludeFullscreen = usePixzloDialogStore(
+      (state) => state.setIncludeFullscreen
+    )
+    const setTitle = usePixzloDialogStore((state) => state.setTitle)
+    const setDescription = usePixzloDialogStore((state) => state.setDescription)
+    const setDrawingElements = usePixzloDialogStore(
+      (state) => state.setDrawingElements
+    )
+    const setDrawingOverlayDataUrl = usePixzloDialogStore(
+      (state) => state.setDrawingOverlayDataUrl
+    )
+    const setDrawingOverlayExporter = usePixzloDialogStore(
+      (state) => state.setDrawingOverlayExporter
+    )
+    const setFigmaDesign = usePixzloDialogStore((state) => state.setFigmaDesign)
+    const setFigmaContext = usePixzloDialogStore(
+      (state) => state.setFigmaContext
+    )
+    const setIsFigmaPopupOpen = usePixzloDialogStore(
+      (state) => state.setIsFigmaPopupOpen
+    )
+    const openDialog = usePixzloDialogStore((state) => state.openDialog)
+    const closeDialog = usePixzloDialogStore((state) => state.closeDialog)
 
     // Initialize dialog when props change
     useEffect(() => {
@@ -95,29 +115,47 @@ const PixzloDialog = memo(
     }
 
     // Store ref to the drawing canvas for export
-    const drawingCanvasRef = useRef<any>(null)
+    const drawingCanvasRef = useRef<{
+      exportDrawing: (options?: {
+        pixelRatio?: number
+        mimeType?: string
+        quality?: number
+      }) => string | null
+    } | null>(null)
     const dialogRootRef = useRef<HTMLDivElement>(null)
 
-    // Handle drawing save
-    const handleDrawingSave = (
-      imageUrl: string,
-      elements: DrawingElement[],
-      originalImage: string
-    ): void => {
-      setDrawingElements(elements)
-      try {
-        // Export drawing overlay from Konva if available and store globally
-        if (
-          drawingCanvasRef.current &&
-          drawingCanvasRef.current.exportDrawing
-        ) {
-          const overlay = drawingCanvasRef.current.exportDrawing()
-          usePixzloDialogStore.getState().setDrawingOverlayDataUrl(overlay)
-        }
-      } catch {
-        // Failed to export drawing overlay
+    useEffect(() => {
+      if (!isOpen) {
+        setDrawingOverlayExporter(null)
+        return
       }
-    }
+
+      const exportOverlay = (): string | null => {
+        if (!drawingCanvasRef.current?.exportDrawing) {
+          return null
+        }
+
+        return drawingCanvasRef.current.exportDrawing({ pixelRatio: 1 })
+      }
+
+      setDrawingOverlayExporter(exportOverlay)
+
+      return () => {
+        setDrawingOverlayExporter(null)
+      }
+    }, [isOpen, setDrawingOverlayExporter])
+
+    // Handle drawing save
+    const handleDrawingSave = useCallback(
+      (
+        _imageUrl: string,
+        elements: DrawingElement[],
+        _originalImage: string
+      ): void => {
+        setDrawingElements(elements)
+      },
+      [setDrawingElements]
+    )
 
     // Handle Figma design selection
     const handleFigmaDesignSelected = (
@@ -186,7 +224,8 @@ const PixzloDialog = memo(
             : currentScreenshot.dataUrl
 
         // Get current drawings from the store
-        const drawings: DrawingElement[] = drawingElements
+        const drawings: DrawingElement[] =
+          usePixzloDialogStore.getState().drawingElements
 
         // Export drawing overlay from Konva if available
         let drawingOverlay: string | null = null
@@ -194,9 +233,10 @@ const PixzloDialog = memo(
           drawingCanvasRef.current &&
           drawingCanvasRef.current.exportDrawing
         ) {
-          // Force a small delay to ensure all drawings are rendered
-          await new Promise((resolve) => setTimeout(resolve, 100))
-          drawingOverlay = drawingCanvasRef.current.exportDrawing()
+          drawingOverlay = drawingCanvasRef.current.exportDrawing({
+            pixelRatio: 1
+          })
+          setDrawingOverlayDataUrl(drawingOverlay)
         }
 
         // Use the composite image URL which matches the drawing canvas dimensions
@@ -217,7 +257,7 @@ const PixzloDialog = memo(
       } catch {
         // Failed to download image
       }
-    }, [activeImageIndex, storeScreenshots, drawingElements])
+    }, [activeImageIndex, setDrawingOverlayDataUrl, storeScreenshots])
 
     const currentScreenshot = storeScreenshots[0]
     const isElementCapture = currentScreenshot?.type === "element"
@@ -235,8 +275,7 @@ const PixzloDialog = memo(
       }
 
       const rootNode = dialogRoot.getRootNode()
-      const dialogHost =
-        rootNode instanceof ShadowRoot ? rootNode.host : null
+      const dialogHost = rootNode instanceof ShadowRoot ? rootNode.host : null
 
       const isDialogNode = (node: EventTarget | null): boolean => {
         if (!node || !(node instanceof Node)) {
@@ -344,7 +383,7 @@ const PixzloDialog = memo(
             {/* Header */}
             <Header onClose={handleClose} />
 
-            <div className="flex flex-1 overflow-hidden">
+            <div className="flex min-w-0 flex-1 overflow-hidden">
               {/* Left side - Images */}
               <ImageSection
                 screenshots={storeScreenshots}
@@ -361,7 +400,9 @@ const PixzloDialog = memo(
               />
 
               {/* Right side - Form and Details */}
-              <div className="bg-gray-50 pr-5" style={{ width: "430px" }}>
+              <div
+                className="shrink-0 bg-gray-50 pr-5"
+                style={{ width: "430px" }}>
                 <div className="flex h-full flex-col">
                   {/* Title and Description */}
                   <FormSection

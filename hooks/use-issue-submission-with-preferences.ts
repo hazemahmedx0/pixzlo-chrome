@@ -13,6 +13,32 @@ interface UseIssueSubmissionReturn {
   isSubmitting: boolean
 }
 
+export interface IssueCreatedResult {
+  issueUrl?: string
+  trackedIssueUrl?: string
+  copiedToClipboard?: boolean
+}
+
+const ISSUE_URL_UTM = {
+  source: "pixzlo_extension",
+  medium: "chrome_extension",
+  campaign: "issue_created",
+  content: "view_issue"
+}
+
+function buildTrackedIssueUrl(issueUrl: string): string {
+  try {
+    const trackedUrl = new URL(issueUrl)
+    trackedUrl.searchParams.set("utm_source", ISSUE_URL_UTM.source)
+    trackedUrl.searchParams.set("utm_medium", ISSUE_URL_UTM.medium)
+    trackedUrl.searchParams.set("utm_campaign", ISSUE_URL_UTM.campaign)
+    trackedUrl.searchParams.set("utm_content", ISSUE_URL_UTM.content)
+    return trackedUrl.toString()
+  } catch {
+    return issueUrl
+  }
+}
+
 /**
  * Enhanced issue submission hook that saves preferences when creating issues
  * - Saves Figma frame preference for the current website
@@ -26,9 +52,9 @@ export const useIssueSubmissionWithPreferences = (
     users?: { id: string; label: string }
     workflowStates?: { id: string; label: string }
   },
-  onIssueCreated?: () => void
+  onIssueCreated?: (result?: IssueCreatedResult) => void
 ): UseIssueSubmissionReturn => {
-  const { createIssueData } = usePixzloDialogStore()
+  const createIssueData = usePixzloDialogStore((state) => state.createIssueData)
   const { currentFrame } = useFigmaToolbarStore()
   const { metadata } = useLinearDataStore()
   const { preference: existingFigmaPreference } = useFigmaPreferences()
@@ -75,7 +101,8 @@ export const useIssueSubmissionWithPreferences = (
 
   const savePreferences = useCallback(async (): Promise<void> => {
     try {
-      const currentWebsiteUrl = window.location.href
+      // Use getPageUrl() to get the correct URL in tab page context
+      const currentWebsiteUrl = usePixzloDialogStore.getState().getPageUrl()
 
       const preferredFrameId =
         currentFrame?.figmaFrameId ?? currentFrame?.id ?? null
@@ -235,8 +262,20 @@ export const useIssueSubmissionWithPreferences = (
             screenshots?.[state.activeImageIndex || 0]?.compositeImageUrl ||
             screenshots?.[0]?.dataUrl
 
-          // Prefer Konva overlay export when available to ensure drawings are preserved
-          const overlay = state.drawingOverlayDataUrl || null
+          // Export drawing overlay on demand to avoid expensive per-stroke
+          // background exports while keeping submission images current.
+          let overlay = state.drawingOverlayDataUrl || null
+          if (state.drawingOverlayExporter) {
+            try {
+              const latestOverlay = state.drawingOverlayExporter()
+              if (latestOverlay) {
+                overlay = latestOverlay
+                state.setDrawingOverlayDataUrl(latestOverlay)
+              }
+            } catch {
+              // Fall back to cached overlay if export fails.
+            }
+          }
 
           // Create annotated image with drawings
           let annotated: string | undefined = baseImage
@@ -376,6 +415,26 @@ export const useIssueSubmissionWithPreferences = (
             data?: { issueUrl: string }
             error?: string
           }) => {
+            const finalizeIssueCreation = (
+              result?: IssueCreatedResult
+            ): void => {
+              setIsSubmitting(false)
+
+              // Persist new Figma link only after issue creation succeeds
+              void persistFigmaLinkAfterIssue()
+
+              if (onIssueCreated) {
+                onIssueCreated(result)
+                return
+              }
+
+              toast.success("Issue created successfully!", {
+                description: result?.copiedToClipboard
+                  ? "URL copied to clipboard"
+                  : undefined
+              })
+            }
+
             if (chrome.runtime.lastError) {
               onSubmit?.(issueData)
               setIsSubmitting(false)
@@ -386,31 +445,29 @@ export const useIssueSubmissionWithPreferences = (
               setIsSubmitting(false)
               return
             }
-            const url = response.data?.issueUrl
-            if (url) {
-              navigator.clipboard
-                ?.writeText(url)
-                .then(() => {
-                  toast.success("Issue created successfully!", {
-                    description: "URL copied to clipboard"
-                  })
-                })
-                .catch(() => {
-                  toast.success("Issue created successfully!")
-                })
-            } else {
-              toast.success("Issue created successfully!")
+
+            const issueUrl = response.data?.issueUrl
+            const trackedIssueUrl = issueUrl
+              ? buildTrackedIssueUrl(issueUrl)
+              : undefined
+
+            if (!issueUrl || !navigator.clipboard?.writeText) {
+              finalizeIssueCreation({ issueUrl, trackedIssueUrl })
+              return
             }
 
-            setIsSubmitting(false)
-
-            // Persist new Figma link only after issue creation succeeds
-            void persistFigmaLinkAfterIssue()
-
-            // Close dialog but keep extension active for more selections
-            if (onIssueCreated) {
-              onIssueCreated()
-            }
+            navigator.clipboard
+              .writeText(issueUrl)
+              .then(() => {
+                finalizeIssueCreation({
+                  issueUrl,
+                  trackedIssueUrl,
+                  copiedToClipboard: true
+                })
+              })
+              .catch(() => {
+                finalizeIssueCreation({ issueUrl, trackedIssueUrl })
+              })
           }
         )
       })()

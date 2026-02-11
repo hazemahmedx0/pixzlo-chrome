@@ -6,7 +6,7 @@ import { useEffect, useRef } from "react"
 export function useDialogIntegrationData(): void {
   const { fetchAllData: fetchLinearData, checkStatus } = useLinearDataStore()
   const { fetchMetadata } = useFigmaDataStore()
-  const { isOpen } = usePixzloDialogStore()
+  const isOpen = usePixzloDialogStore((state) => state.isOpen)
 
   // Use ref to track if data has been fetched for this dialog session
   const hasFetchedRef = useRef(false)

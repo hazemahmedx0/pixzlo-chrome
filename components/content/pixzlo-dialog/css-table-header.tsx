@@ -11,8 +11,13 @@ interface CSSTableHeaderProps {
 
 const CSSTableHeader = memo(
   ({ displayMode, onDisplayModeChange }: CSSTableHeaderProps): JSX.Element => {
-    const { selectedProperties, extractedCSS, toggleSelectAll } =
-      usePixzloDialogStore()
+    const selectedProperties = usePixzloDialogStore(
+      (state) => state.selectedProperties
+    )
+    const extractedCSS = usePixzloDialogStore((state) => state.extractedCSS)
+    const toggleSelectAll = usePixzloDialogStore(
+      (state) => state.toggleSelectAll
+    )
 
     const allProperties = extractedCSS?.properties.map((p) => p.name) || []
     const selectedCount = allProperties.filter((name) =>

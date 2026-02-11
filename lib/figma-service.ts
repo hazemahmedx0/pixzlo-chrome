@@ -1,4 +1,5 @@
 import { PIXZLO_WEB_URL } from "@/lib/constants"
+import { getPageUrl } from "@/lib/page-url"
 import type {
   FigmaApiResponse,
   FigmaAuthStatus,
@@ -224,7 +225,7 @@ export class FigmaService {
   async getDesignLinksForCurrentPage(): Promise<
     FigmaApiResponse<FigmaDesignLink[]>
   > {
-    const currentUrl = window.location.href
+    const currentUrl = getPageUrl()
 
     const metadataResponse = await this.getMetadata(currentUrl)
     if (!metadataResponse.success || !metadataResponse.data) {
@@ -244,7 +245,7 @@ export class FigmaService {
     FigmaApiResponse<FigmaMetadata>
   > {
     this.clearMetadataCache()
-    return this.getMetadata(window.location.href, { force: true })
+    return this.getMetadata(getPageUrl(), { force: true })
   }
 
   async updatePreference(update: {
@@ -269,7 +270,7 @@ export class FigmaService {
     frame_url: string
     thumbnail_url?: string
   }): Promise<FigmaApiResponse<FigmaDesignLink>> {
-    const currentUrl = window.location.href
+    const currentUrl = getPageUrl()
     const normalizedUrl = (() => {
       try {
         const parsed = new URL(currentUrl)
@@ -314,7 +315,7 @@ export class FigmaService {
   }
 
   async deleteDesignLink(linkId: string): Promise<FigmaApiResponse<void>> {
-    const currentUrl = window.location.href
+    const currentUrl = getPageUrl()
 
     const response = await this.callBackground<void>({
       type: "figma-delete-design-link",
@@ -335,7 +336,7 @@ export class FigmaService {
     fileId: string,
     options: { depth?: number } = {}
   ): Promise<FigmaApiResponse<FigmaFile>> {
-    const metadataResponse = await this.getMetadata(window.location.href)
+    const metadataResponse = await this.getMetadata(getPageUrl())
     if (!metadataResponse.success || !metadataResponse.data) {
       return {
         success: false,
@@ -411,7 +412,7 @@ export class FigmaService {
       }
     }
 
-    const metadataResponse = await this.getMetadata(window.location.href)
+    const metadataResponse = await this.getMetadata(getPageUrl())
     if (!metadataResponse.success || !metadataResponse.data) {
       return {
         success: false,
@@ -517,7 +518,7 @@ export class FigmaService {
       return { success: true, data: cachedImages }
     }
 
-    const metadataResponse = await this.getMetadata(window.location.href)
+    const metadataResponse = await this.getMetadata(getPageUrl())
     if (!metadataResponse.success || !metadataResponse.data) {
       return {
         success: false,

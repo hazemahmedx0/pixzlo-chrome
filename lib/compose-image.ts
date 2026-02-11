@@ -1,3 +1,5 @@
+import { IMAGE_OUTPUT_MIME, IMAGE_OUTPUT_QUALITY } from "@/lib/image-format"
+
 export async function composeAnnotatedImage(
   baseImageUrl: string,
   overlayDataUrl?: string | null
@@ -43,7 +45,7 @@ export async function composeAnnotatedImage(
     }
   }
 
-  return canvas.toDataURL("image/png")
+  return canvas.toDataURL(IMAGE_OUTPUT_MIME, IMAGE_OUTPUT_QUALITY)
 }
 
 function loadImage(src: string): Promise<HTMLImageElement> {

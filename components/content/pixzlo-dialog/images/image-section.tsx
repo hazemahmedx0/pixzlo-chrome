@@ -59,12 +59,10 @@ const ImageSection = memo(
         : screenshots[0]?.dataUrl || currentScreenshot.dataUrl
 
     return (
-      <div
-        className="flex flex-1 flex-col bg-gray-50 p-4"
-        style={{ width: "calc(100% - 384px)" }}>
-        <div className="flex h-full flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col bg-gray-50 p-4">
+        <div className="flex h-full min-w-0 flex-1 flex-col">
           {/* Main screenshot preview */}
-          <div className="flex min-h-0 flex-1 items-center justify-center">
+          <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center">
             {isComparisonView ? (
               <ElementComparisonPreview
                 currentImage={implementationImage}

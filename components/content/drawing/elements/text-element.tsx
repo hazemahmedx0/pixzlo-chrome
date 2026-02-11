@@ -1,4 +1,3 @@
-import { useDrawingStore } from "@/stores/drawing-store"
 import type { TextElement as TextElementType } from "@/types/drawing"
 import { memo } from "react"
 import { Text } from "react-konva"
@@ -9,9 +8,6 @@ interface TextElementProps {
 
 export const TextElement = memo(
   ({ element }: TextElementProps): JSX.Element => {
-    const { textEditing } = useDrawingStore()
-
-    const isCurrentlyEditing = textEditing.isEditing === element.id
     const isPlaceholder = element.text === "Type here"
 
     return (
@@ -30,6 +26,7 @@ export const TextElement = memo(
         draggable={false}
         opacity={isPlaceholder ? 0.7 : 1}
         fontStyle={isPlaceholder ? "italic" : "normal"}
+        perfectDrawEnabled={false}
       />
     )
   }

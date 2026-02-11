@@ -39,7 +39,9 @@ export {
 export {
   handleCaptureScreen,
   handleCaptureElementScreenshot,
-  handleFetchImageDataUrl
+  handleFetchImageDataUrl,
+  handleOpenCaptureTab,
+  cleanupStaleSessions
 } from "./capture-handlers"
 
 // API handlers

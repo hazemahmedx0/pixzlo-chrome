@@ -16,6 +16,8 @@ export const ArrowElement = memo(
       points={element.points}
       pointerLength={10}
       pointerWidth={10}
+      perfectDrawEnabled={false}
+      shadowForStrokeEnabled={false}
     />
   )
 )

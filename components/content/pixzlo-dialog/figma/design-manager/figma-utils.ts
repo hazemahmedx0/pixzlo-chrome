@@ -2,6 +2,8 @@
  * Utility functions for Figma-related operations
  */
 
+import { IMAGE_OUTPUT_MIME, IMAGE_OUTPUT_QUALITY } from "@/lib/image-format"
+
 // Helper function to create a 16:9 aspect ratio image with padding and gray background
 export async function createPaddedAspectRatioImage({
   imageUrl,
@@ -90,7 +92,7 @@ export async function createPaddedAspectRatioImage({
       )
 
       // Convert to data URL
-      resolve(canvas.toDataURL("image/png"))
+      resolve(canvas.toDataURL(IMAGE_OUTPUT_MIME, IMAGE_OUTPUT_QUALITY))
     }
 
     img.onerror = () => {
@@ -224,7 +226,7 @@ export async function cropImageFromSource(
           sourceHeight
         )
 
-        const croppedDataUrl = canvas.toDataURL("image/png")
+        const croppedDataUrl = canvas.toDataURL(IMAGE_OUTPUT_MIME, IMAGE_OUTPUT_QUALITY)
         resolve(croppedDataUrl)
       }
 
@@ -279,7 +281,7 @@ export function processScreenshotCrop(
         area.height
       )
 
-      const croppedDataUrl = canvas.toDataURL("image/png")
+      const croppedDataUrl = canvas.toDataURL(IMAGE_OUTPUT_MIME, IMAGE_OUTPUT_QUALITY)
       resolve(croppedDataUrl)
     }
     img.onerror = () => resolve(dataUrl) // Fallback
@@ -333,7 +335,7 @@ export async function convertTo16x9WithPadding(
       const drawY = (canvas.height - drawHeight) / 2
 
       ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight)
-      resolve(canvas.toDataURL("image/png"))
+      resolve(canvas.toDataURL(IMAGE_OUTPUT_MIME, IMAGE_OUTPUT_QUALITY))
     }
 
     img.onerror = () => {

@@ -1,4 +1,5 @@
 import type { CaptureOptions, CaptureType, Screenshot } from "@/types/capture"
+import { IMAGE_OUTPUT_MIME, IMAGE_OUTPUT_QUALITY } from "@/lib/image-format"
 
 const PADDING_BACKGROUND_COLOR = "#f3f4f6"
 
@@ -146,7 +147,7 @@ export class CaptureService {
           // Draw the original image
           ctx.drawImage(img, imageX, imageY, imageWidth, imageHeight)
 
-          resolve(canvas.toDataURL("image/png"))
+          resolve(canvas.toDataURL(IMAGE_OUTPUT_MIME, IMAGE_OUTPUT_QUALITY))
         } catch (error) {
           reject(error)
         }
@@ -216,7 +217,7 @@ export class CaptureService {
         ctx.lineWidth = 3 * dpr
         ctx.strokeRect(highlightX, highlightY, highlightWidth, highlightHeight)
 
-        resolve(canvas.toDataURL("image/png"))
+        resolve(canvas.toDataURL(IMAGE_OUTPUT_MIME, IMAGE_OUTPUT_QUALITY))
       }
       img.src = imageDataUrl
     })
@@ -263,7 +264,7 @@ export class CaptureService {
         ctx.lineWidth = 3 * dpr
         ctx.strokeRect(highlightX, highlightY, highlightWidth, highlightHeight)
 
-        resolve(canvas.toDataURL("image/png"))
+        resolve(canvas.toDataURL(IMAGE_OUTPUT_MIME, IMAGE_OUTPUT_QUALITY))
       }
       img.src = imageDataUrl
     })
@@ -312,7 +313,7 @@ export class CaptureService {
             canvas.height // destination height
           )
 
-          resolve(canvas.toDataURL("image/png"))
+          resolve(canvas.toDataURL(IMAGE_OUTPUT_MIME, IMAGE_OUTPUT_QUALITY))
         } catch (error) {
           reject(error)
         }
@@ -529,7 +530,7 @@ export class CaptureService {
           highlightCanvas.height - 2
         )
 
-        resolve(highlightCanvas.toDataURL("image/png"))
+        resolve(highlightCanvas.toDataURL(IMAGE_OUTPUT_MIME, IMAGE_OUTPUT_QUALITY))
       }
       konvaImg.src = konvaDataUrl
     })
@@ -594,7 +595,7 @@ export class CaptureService {
           ctx.strokeRect(1, 1, finalCanvas.width - 2, finalCanvas.height - 2)
         }
 
-        resolve(finalCanvas.toDataURL("image/png"))
+        resolve(finalCanvas.toDataURL(IMAGE_OUTPUT_MIME, IMAGE_OUTPUT_QUALITY))
       }
       konvaImg.src = konvaDataUrl
     })
@@ -631,7 +632,7 @@ export class CaptureService {
 
         // NO overlay - preserve original content exactly
 
-        resolve(highlightCanvas.toDataURL("image/png"))
+        resolve(highlightCanvas.toDataURL(IMAGE_OUTPUT_MIME, IMAGE_OUTPUT_QUALITY))
       }
       konvaImg.src = konvaDataUrl
     })

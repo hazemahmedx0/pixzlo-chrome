@@ -644,12 +644,15 @@ const FigmaDesignManager = memo(
       ]
     )
 
+    // Get the correct page URL (handles tab page context)
+    const getPageUrl = usePixzloDialogStore((state) => state.getPageUrl)
+
     useEffect(() => {
       if (!isOpen || !needsFigmaMetadataRefresh) {
         return
       }
 
-      refreshMetadata(window.location.href, { force: true })
+      refreshMetadata(getPageUrl(), { force: true })
         .catch(() => {
           // Ignore refresh errors here
         })
@@ -660,7 +663,8 @@ const FigmaDesignManager = memo(
       isOpen,
       needsFigmaMetadataRefresh,
       refreshMetadata,
-      setNeedsFigmaMetadataRefresh
+      setNeedsFigmaMetadataRefresh,
+      getPageUrl
     ])
 
     // Initialize state from initialContext when changing design

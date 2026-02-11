@@ -2,7 +2,7 @@ import { useDrawingStore } from "@/stores/drawing-store"
 import { usePixzloDialogStore } from "@/stores/pixzlo-dialog"
 import type { DrawingElement, DrawingTool } from "@/types/drawing"
 import type { FigmaDesignLink } from "@/types/figma"
-import { Edit3, Plus, Save, X } from "lucide-react"
+import { Edit3, Plus } from "lucide-react"
 import { memo, useCallback, useEffect, useRef, useState } from "react"
 import type { RefObject, SyntheticEvent } from "react"
 
@@ -59,8 +59,6 @@ const ScreenshotPreviewWithDrawing = memo(
       (state) => state.setIsFigmaPopupOpen
     )
 
-    const [isDrawingMode, setIsDrawingMode] = useState(false)
-    const [drawingImageUrl, setDrawingImageUrl] = useState<string | null>(null)
     const [activeTool, setActiveTool] = useState<DrawingTool>("pen") // Start with pen tool active
     const [color, setColor] = useState<string>(DRAWING_CONSTANTS.DEFAULT_COLOR)
     const [strokeWidth, setStrokeWidth] = useState<number>(
@@ -69,6 +67,28 @@ const ScreenshotPreviewWithDrawing = memo(
     const [fontSize, setFontSize] = useState<number>(
       DRAWING_CONSTANTS.DEFAULT_FONT_SIZE
     )
+
+    // ───────── Zoom state (screenshot mode only) ─────────
+    const ZOOM_STEP = 0.25
+    const ZOOM_MIN = 0.25
+    const ZOOM_MAX = 4.0
+
+    const [zoomLevel, setZoomLevel] = useState(1.0)
+
+    const handleZoomIn = useCallback(() => {
+      setZoomLevel((z) => Math.min(z + ZOOM_STEP, ZOOM_MAX))
+    }, [])
+
+    const handleZoomOut = useCallback(() => {
+      setZoomLevel((z) => Math.max(z - ZOOM_STEP, ZOOM_MIN))
+    }, [])
+
+    const handleZoomFit = useCallback(() => {
+      setZoomLevel(1.0)
+    }, [])
+
+    // Ref for the standalone image area – used for wheel zoom
+    const imageAreaRef = useRef<HTMLDivElement | null>(null)
 
     // Get Zustand store actions
     const setZustandTool = useDrawingStore((state) => state.setTool)
@@ -82,48 +102,27 @@ const ScreenshotPreviewWithDrawing = memo(
     const handleColorChange = useCallback(
       (newColor: string) => {
         setColor(newColor)
-
-        // Update Zustand store so canvas can read it
         setZustandColor(newColor)
-
-        const canvas = drawingCanvasRef?.current || canvasRef.current
-        if (canvas?.updateDrawingState) {
-          canvas.updateDrawingState({ color: newColor })
-        }
       },
-      [drawingCanvasRef, setZustandColor]
+      [setZustandColor]
     )
 
     // Handle stroke width change with immediate canvas update
     const handleStrokeWidthChange = useCallback(
       (width: number) => {
         setStrokeWidth(width)
-
-        // Update Zustand store so canvas can read it
         setZustandStrokeWidth(width)
-
-        const canvas = drawingCanvasRef?.current || canvasRef.current
-        if (canvas?.updateDrawingState) {
-          canvas.updateDrawingState({ strokeWidth: width })
-        }
       },
-      [drawingCanvasRef, setZustandStrokeWidth]
+      [setZustandStrokeWidth]
     )
 
     // Handle font size change with immediate canvas update
     const handleFontSizeChange = useCallback(
       (size: number) => {
         setFontSize(size)
-
-        // Update Zustand store so canvas can read it
         setZustandFontSize(size)
-
-        const canvas = drawingCanvasRef?.current || canvasRef.current
-        if (canvas?.updateDrawingState) {
-          canvas.updateDrawingState({ fontSize: size })
-        }
       },
-      [drawingCanvasRef, setZustandFontSize]
+      [setZustandFontSize]
     )
     const [elements, setElements] = useState<DrawingElement[]>([])
     const [imageSize, setImageSize] = useState({ width: 0, height: 0 })
@@ -132,54 +131,23 @@ const ScreenshotPreviewWithDrawing = memo(
 
     // History is now managed by the canvas itself
     const canvasRef = useRef<any>(null)
-    const isUndoRedoOperation = useRef(false)
-    const lastSavedElementsRef = useRef<string>("")
 
     const handleToolChange = useCallback(
       (tool: DrawingTool) => {
         setActiveTool(tool)
-
-        // Update Zustand store so canvas can read it
         setZustandTool(tool)
-
-        // Clear any ongoing drawing operations when switching tools
-        const canvas = drawingCanvasRef?.current || canvasRef.current
-        if (canvas?.updateDrawingState) {
-          // Force reset drawing state and then update tool
-          canvas.updateDrawingState({
-            tool,
-            isDrawing: false,
-            selectedElementId: null
-          })
-        }
       },
-      [drawingCanvasRef, setZustandTool]
+      [setZustandTool]
     )
 
-    // Initialize canvas state when canvas becomes available
+    // Initialize drawing store values once for this preview instance.
     useEffect(() => {
-      // Sync Zustand store with initial local state
       setZustandTool(activeTool)
       setZustandColor(color)
       setZustandStrokeWidth(strokeWidth)
       setZustandFontSize(fontSize)
-
-      const canvas = drawingCanvasRef?.current || canvasRef.current
-      if (canvas?.updateDrawingState) {
-        canvas.updateDrawingState({
-          tool: activeTool,
-          color,
-          strokeWidth,
-          fontSize
-        })
-      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- one-time initialization
     }, [
-      drawingCanvasRef?.current,
-      canvasRef.current,
-      activeTool,
-      color,
-      strokeWidth,
-      fontSize,
       setZustandTool,
       setZustandColor,
       setZustandStrokeWidth,
@@ -188,40 +156,50 @@ const ScreenshotPreviewWithDrawing = memo(
 
     // Refs to prevent flashing during rapid updates
     const elementsLengthRef = useRef(elements.length)
-    const lastProcessedElementsRef = useRef<string>("")
-    const saveTimeoutRef = useRef<NodeJS.Timeout>()
+    const latestElementsRef = useRef<DrawingElement[]>(elements)
+    const saveRevisionRef = useRef(0)
+    const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
     const handleElementsChange = useCallback(
       (newElements: DrawingElement[]) => {
-        const newElementsStr = JSON.stringify(newElements)
-
-        // Fast path for no change - check both length and content
         if (
           newElements.length === elementsLengthRef.current &&
-          newElementsStr === lastProcessedElementsRef.current
+          newElements === latestElementsRef.current
         ) {
           return
         }
 
-        // Update elements state immediately but batch other operations
+        // Update visual state immediately.
         setElements(newElements)
         elementsLengthRef.current = newElements.length
-        lastProcessedElementsRef.current = newElementsStr
+        latestElementsRef.current = newElements
 
-        // Debounce save operations to prevent rapid calls
-        if (onDrawingSave) {
-          if (saveTimeoutRef.current) {
-            clearTimeout(saveTimeoutRef.current)
-          }
-          saveTimeoutRef.current = setTimeout(() => {
-            if (lastSavedElementsRef.current !== newElementsStr) {
-              lastSavedElementsRef.current = newElementsStr
-              onDrawingSave(currentImage, newElements, currentImage)
-            }
-          }, 500) // Much longer debounce - 500ms to prevent rapid saves
+        if (!onDrawingSave) return
+
+        // Debounce persistence work and keep only the latest snapshot.
+        saveRevisionRef.current += 1
+        const revision = saveRevisionRef.current
+
+        if (saveTimeoutRef.current) {
+          clearTimeout(saveTimeoutRef.current)
         }
+
+        const persistLatestElements = (): void => {
+          if (revision !== saveRevisionRef.current) {
+            return
+          }
+
+          if (useDrawingStore.getState().isDrawing) {
+            saveTimeoutRef.current = setTimeout(persistLatestElements, 120)
+            return
+          }
+
+          onDrawingSave(currentImage, latestElementsRef.current, currentImage)
+        }
+
+        saveTimeoutRef.current = setTimeout(persistLatestElements, 300)
       },
-      [onDrawingSave, elements, currentImage]
+      [currentImage, onDrawingSave]
     )
 
     // Cleanup timeouts on unmount
@@ -229,8 +207,36 @@ const ScreenshotPreviewWithDrawing = memo(
       return () => {
         if (saveTimeoutRef.current) {
           clearTimeout(saveTimeoutRef.current)
+          saveTimeoutRef.current = null
         }
       }
+    }, [])
+
+    // Cancel in-flight autosave when switching screenshots.
+    useEffect(() => {
+      saveRevisionRef.current += 1
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current)
+        saveTimeoutRef.current = null
+      }
+    }, [currentImage])
+
+    // Ctrl/Cmd + mouse wheel zoom on the image area
+    useEffect(() => {
+      const el = imageAreaRef.current
+      if (!el) return
+
+      const onWheel = (e: WheelEvent): void => {
+        if (!e.ctrlKey && !e.metaKey) return
+        e.preventDefault()
+        setZoomLevel((z) => {
+          const delta = e.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP
+          return Math.min(Math.max(z + delta, ZOOM_MIN), ZOOM_MAX)
+        })
+      }
+
+      el.addEventListener("wheel", onWheel, { passive: false })
+      return () => el.removeEventListener("wheel", onWheel)
     }, [])
 
     const handleUndo = useCallback(() => {
@@ -256,6 +262,16 @@ const ScreenshotPreviewWithDrawing = memo(
       }
     }, [drawingCanvasRef, canvasRef])
 
+    const canUndoValue = (() => {
+      const canvas = drawingCanvasRef?.current || canvasRef.current
+      return canvas?.canUndo ? canvas.canUndo() : false
+    })()
+
+    const canRedoValue = (() => {
+      const canvas = drawingCanvasRef?.current || canvasRef.current
+      return canvas?.canRedo ? canvas.canRedo() : false
+    })()
+
     const handleImageLoad = useCallback(
       (event: SyntheticEvent<HTMLImageElement>) => {
         const img = event.currentTarget
@@ -268,8 +284,6 @@ const ScreenshotPreviewWithDrawing = memo(
       },
       []
     )
-
-    const displayImage = drawingImageUrl || currentImage
 
     const implementationContainerClass = isComparisonView
       ? "relative w-full overflow-hidden rounded-sm border border-solid border-gray-300"
@@ -371,14 +385,14 @@ const ScreenshotPreviewWithDrawing = memo(
             onUndo={handleUndo}
             onRedo={handleRedo}
             onClear={handleClear}
-            canUndo={() => {
-              const canvas = drawingCanvasRef?.current || canvasRef.current
-              return canvas?.canUndo ? canvas.canUndo() : false
-            }}
-            canRedo={() => {
-              const canvas = drawingCanvasRef?.current || canvasRef.current
-              return canvas?.canRedo ? canvas.canRedo() : false
-            }}
+            canUndo={canUndoValue}
+            canRedo={canRedoValue}
+            {...(!isComparisonView && {
+              zoom: zoomLevel,
+              onZoomIn: handleZoomIn,
+              onZoomOut: handleZoomOut,
+              onZoomFit: handleZoomFit
+            })}
           />
         </div>
 
@@ -391,9 +405,19 @@ const ScreenshotPreviewWithDrawing = memo(
             </div>
           </div>
         ) : (
-          <div className="flex min-h-[300px] flex-1 items-center justify-center overflow-hidden px-6 py-4">
-            <div className="flex h-full w-full max-w-[1200px] items-center justify-center">
-              {implementationPane}
+          <div ref={imageAreaRef} className="relative min-h-0 flex-1 px-6 py-4">
+            <div className="mx-auto flex h-full w-full max-w-[1200px] items-center justify-center">
+              <ImagePreviewContainer
+                imageUrl={currentImage}
+                imageSize={imageSize}
+                canvasRef={drawingCanvasRef || canvasRef}
+                elements={elements}
+                onElementsChange={handleElementsChange}
+                onImageLoad={handleImageLoad}
+                altText="Original Screenshot"
+                isScreenshot={true}
+                zoom={zoomLevel}
+              />
             </div>
           </div>
         )}

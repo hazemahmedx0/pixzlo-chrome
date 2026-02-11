@@ -212,6 +212,7 @@ const FormSection = memo(
             onMouseDown={(e) => e.stopPropagation()}
             rows={3}
             maxLength={DESCRIPTION_MAX_LENGTH}
+            className="max-h-[168px] resize-y"
           />
         </div>
       </>

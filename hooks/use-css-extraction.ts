@@ -3,8 +3,9 @@ import { usePixzloDialogStore } from "@/stores/pixzlo-dialog"
 import { useEffect } from "react"
 
 export const useCSSExtraction = (): void => {
-  const { selectedElement, screenshots, setExtractedCSS } =
-    usePixzloDialogStore()
+  const selectedElement = usePixzloDialogStore((state) => state.selectedElement)
+  const screenshots = usePixzloDialogStore((state) => state.screenshots)
+  const setExtractedCSS = usePixzloDialogStore((state) => state.setExtractedCSS)
 
   useEffect(() => {
     if (!selectedElement || !screenshots.length) {

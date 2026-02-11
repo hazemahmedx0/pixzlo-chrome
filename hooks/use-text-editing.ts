@@ -3,13 +3,11 @@ import type { TextElement } from "@/types/drawing"
 import { useCallback, useRef } from "react"
 
 export const useTextEditing = () => {
-  const {
-    textEditing,
-    startTextEdit,
-    updateTextLive,
-    finishTextEdit,
-    cancelTextEdit
-  } = useDrawingStore()
+  const textEditing = useDrawingStore((state) => state.textEditing)
+  const startTextEdit = useDrawingStore((state) => state.startTextEdit)
+  const updateTextLive = useDrawingStore((state) => state.updateTextLive)
+  const finishTextEdit = useDrawingStore((state) => state.finishTextEdit)
+  const cancelTextEdit = useDrawingStore((state) => state.cancelTextEdit)
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
 

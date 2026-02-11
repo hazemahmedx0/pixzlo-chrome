@@ -3,6 +3,7 @@
 import { useDrawingCanvas } from "@/hooks/use-drawing-canvas"
 import { useDrawingHistory } from "@/hooks/use-drawing-history"
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts"
+import { IMAGE_OUTPUT_MIME, IMAGE_OUTPUT_QUALITY } from "@/lib/image-format"
 import { useDrawingStore } from "@/stores/drawing-store"
 import type { DrawingCanvasProps, DrawingElement } from "@/types/drawing"
 import {
@@ -14,7 +15,6 @@ import {
   useMemo
 } from "react"
 import { Layer, Stage } from "react-konva"
-import useImage from "use-image"
 
 import {
   ArrowElement,
@@ -24,19 +24,28 @@ import {
   TextElement
 } from "./elements"
 
+interface ExportDrawingOptions {
+  pixelRatio?: number
+  mimeType?: string
+  quality?: number
+}
+
 const DrawingCanvas = forwardRef<any, DrawingCanvasProps>(
   (
     {
       imageUrl,
       width,
       height,
+      scaleX: propScaleX,
+      scaleY: propScaleY,
       onElementsChange,
       initialElements = [],
       className = ""
     },
     ref
   ) => {
-    const [image] = useImage(imageUrl)
+    const stageScaleX = propScaleX ?? 1
+    const stageScaleY = propScaleY ?? 1
 
     // Use React-based history following Konva best practices (optional)
     const historyHook = useDrawingHistory(initialElements)
@@ -69,6 +78,8 @@ const DrawingCanvas = forwardRef<any, DrawingCanvasProps>(
       (state) => state.drawingState.strokeWidth
     )
     const fontSize = useDrawingStore((state) => state.drawingState.fontSize)
+    const isInteractiveLayer =
+      drawingTool === "text" || drawingTool === "select"
 
     // Force Konva stage to redraw when elements change
     useEffect(() => {
@@ -157,22 +168,55 @@ const DrawingCanvas = forwardRef<any, DrawingCanvasProps>(
       []
     )
 
-    // Export drawing functionality
-    const exportDrawing = useCallback(() => {
+    const renderedElements = useMemo(
+      () =>
+        renderElements.map((element, index) => renderElement(element, index)),
+      [renderElements, renderElement]
+    )
+
+    const renderedTempElement = useMemo(
+      () => (tempElement ? renderElement(tempElement, -1) : null),
+      [tempElement, renderElement]
+    )
+
+    // Export drawing functionality – temporarily reset scale so the
+    // exported overlay always matches the natural-image coordinate space.
+    const exportDrawing = useCallback((options?: ExportDrawingOptions) => {
       if (!stageRef.current) return null
 
-      try {
-        const pixelRatio = window.devicePixelRatio || 1
-        const exportPixelRatio = Math.max(pixelRatio, 2)
+      const stage = stageRef.current
+      const prevScale = stage.scale()
+      const prevSize = stage.size()
 
-        return stageRef.current.toDataURL({
-          mimeType: "image/png",
-          quality: 1,
+      const scaleX = prevScale.x || 1
+      const scaleY = prevScale.y || 1
+      const baseW = Math.max(1, Math.round(prevSize.width / scaleX))
+      const baseH = Math.max(1, Math.round(prevSize.height / scaleY))
+
+      try {
+        // Temporarily set scale to 1 and size to base dimensions
+        stage.scale({ x: 1, y: 1 })
+        stage.size({ width: baseW, height: baseH })
+        stage.batchDraw()
+
+        const requestedPixelRatio = options?.pixelRatio ?? 1
+        const exportPixelRatio = Number.isFinite(requestedPixelRatio)
+          ? Math.max(requestedPixelRatio, 1)
+          : 1
+
+        return stage.toDataURL({
+          mimeType: options?.mimeType ?? IMAGE_OUTPUT_MIME,
+          quality: options?.quality ?? IMAGE_OUTPUT_QUALITY,
           backgroundColor: "transparent",
           pixelRatio: exportPixelRatio
         })
       } catch {
         return null
+      } finally {
+        // Always restore the stage so failed exports never affect drawing.
+        stage.scale(prevScale)
+        stage.size(prevSize)
+        stage.batchDraw()
       }
     }, [])
 
@@ -231,17 +275,8 @@ const DrawingCanvas = forwardRef<any, DrawingCanvasProps>(
       )
     }
 
-    const stageKey = useMemo(
-      () => `${Math.round(width)}x${Math.round(height)}`,
-      [width, height]
-    )
-
-    useEffect(() => {
-      if (stageRef.current) {
-        stageRef.current.size({ width, height })
-        stageRef.current.batchDraw()
-      }
-    }, [width, height])
+    // Stable key so zoom/resize doesn't destroy the stage and lose drawings
+    const stageKey = useMemo(() => `stage-${imageUrl}`, [imageUrl])
 
     return (
       <div className={`relative ${className}`} style={{ width, height }}>
@@ -250,12 +285,14 @@ const DrawingCanvas = forwardRef<any, DrawingCanvasProps>(
           ref={stageRef}
           width={width}
           height={height}
+          scaleX={stageScaleX}
+          scaleY={stageScaleY}
           onMouseDown={handleMouseDown}
           onMousemove={handleMouseMove}
           onMouseup={handleMouseUp}
           onMouseleave={handleMouseUp}
           onContextMenu={(e) => e.evt?.preventDefault?.()}
-          onClick={handleStageClick}
+          onClick={isInteractiveLayer ? handleStageClick : undefined}
           style={{
             position: "absolute",
             top: 0,
@@ -272,29 +309,25 @@ const DrawingCanvas = forwardRef<any, DrawingCanvasProps>(
           stopPropagation={false}>
           {/* Main drawing layer */}
           <Layer
-            key={`elements-${renderElements.length}-${renderCounter}-${JSON.stringify(renderElements.map((el) => el.id)).slice(0, 50)}`}
-            listening={true}
+            key="main-layer"
+            listening={isInteractiveLayer}
             perfectDrawEnabled={false}
-            hitGraphEnabled={true}
-            imageSmoothingEnabled={false}
-            clearBeforeDraw={false}>
+            hitGraphEnabled={isInteractiveLayer}
+            imageSmoothingEnabled={false}>
             {/* Render all finished elements */}
-            {renderElements.map((element, index) =>
-              renderElement(element, index)
-            )}
+            {renderedElements}
           </Layer>
 
-          {/* Temporary element layer for live drawing */}
-          {tempElement && (
-            <Layer
-              listening={false}
-              perfectDrawEnabled={false}
-              hitGraphEnabled={false}
-              imageSmoothingEnabled={false}
-              clearBeforeDraw={true}>
-              {renderElement(tempElement, -1)}
-            </Layer>
-          )}
+          {/* Temporary element layer for live drawing – always mounted to
+              avoid expensive Konva Layer + Canvas allocation on each stroke */}
+          <Layer
+            listening={false}
+            perfectDrawEnabled={false}
+            hitGraphEnabled={false}
+            imageSmoothingEnabled={false}
+            clearBeforeDraw={true}>
+            {renderedTempElement}
+          </Layer>
         </Stage>
       </div>
     )

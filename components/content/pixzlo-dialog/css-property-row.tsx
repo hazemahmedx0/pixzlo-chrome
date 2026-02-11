@@ -46,7 +46,10 @@ const CSSPropertyRow = memo(
     index,
     figmaProperties
   }: CSSPropertyRowProps): JSX.Element => {
-    const { selectedProperties, toggleProperty } = usePixzloDialogStore()
+    const selectedProperties = usePixzloDialogStore(
+      (state) => state.selectedProperties
+    )
+    const toggleProperty = usePixzloDialogStore((state) => state.toggleProperty)
     const isSelected = selectedProperties.has(property.name)
 
     const handleCheckboxChange = (): void => {

@@ -1,4 +1,5 @@
 import type { CaptureOptions, Screenshot } from "@/types/capture"
+import { IMAGE_OUTPUT_MIME, IMAGE_OUTPUT_QUALITY } from "@/lib/image-format"
 
 import { CaptureService } from "./capture-service"
 
@@ -343,8 +344,8 @@ export class ElementSelectionService {
       if (stage) {
         try {
           konvaDataUrl = stage.toDataURL({
-            mimeType: "image/png",
-            quality: 1.0,
+            mimeType: IMAGE_OUTPUT_MIME,
+            quality: IMAGE_OUTPUT_QUALITY,
             pixelRatio: window.devicePixelRatio || 1
           })
         } catch {

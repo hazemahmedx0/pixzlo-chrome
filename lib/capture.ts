@@ -1,5 +1,6 @@
 import type { CaptureFrame } from '@/types/capture'
 import { PADDING, MIN_WIDTH, MIN_HEIGHT } from '@/lib/constants'
+import { IMAGE_OUTPUT_MIME, IMAGE_OUTPUT_QUALITY } from '@/lib/image-format'
 import type { Rect } from '@/types/selection'
 
 export const computeFrame = (rect: DOMRect): CaptureFrame => {
@@ -73,5 +74,5 @@ export const cropImage = async (
 
   ctx.drawImage(img, sx, sy, sWidth, sHeight, dx, dy, sWidth, sHeight)
 
-  return canvas.toDataURL('image/png')
+  return canvas.toDataURL(IMAGE_OUTPUT_MIME, IMAGE_OUTPUT_QUALITY)
 }

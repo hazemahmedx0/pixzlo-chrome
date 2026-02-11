@@ -5,26 +5,17 @@ import type { DrawingTool } from "@/types/drawing"
 import {
   ArrowArcLeftIcon,
   ArrowArcRightIcon,
+  ArrowsInIcon,
   ArrowUpRightIcon,
   CircleIcon,
+  MagnifyingGlassMinusIcon,
+  MagnifyingGlassPlusIcon,
   MinusIcon,
   NavigationArrowIcon,
   PlusIcon,
   SquareIcon,
   TrashIcon
 } from "@phosphor-icons/react"
-import {
-  ArrowRight,
-  Circle,
-  Minus,
-  MousePointer,
-  Plus,
-  Redo,
-  Square,
-  Trash2,
-  Type,
-  Undo
-} from "lucide-react"
 import { memo, useId } from "react"
 
 import ColorPicker from "./color-picker"
@@ -51,6 +42,11 @@ interface DrawingToolbarProps {
   // Can be either boolean (old interface) or function (new interface)
   canUndo?: boolean | (() => boolean)
   canRedo?: boolean | (() => boolean)
+  // Zoom controls (screenshot mode only)
+  zoom?: number
+  onZoomIn?: () => void
+  onZoomOut?: () => void
+  onZoomFit?: () => void
 }
 
 const TOOLS: {
@@ -223,20 +219,27 @@ const DrawingToolbar = memo(
     onColorChange,
     strokeWidth,
     onStrokeWidthChange,
-    fontSize,
-    onFontSizeChange,
+    fontSize: _fontSize,
+    onFontSizeChange: _onFontSizeChange,
     onUndo,
     onRedo,
     onClear,
     canUndo,
-    canRedo
+    canRedo,
+    zoom,
+    onZoomIn,
+    onZoomOut,
+    onZoomFit
   }: DrawingToolbarProps) => {
     // Get drawing settings from Zustand store
-    const drawingState = useDrawingStore((state) => state.drawingState)
+    const storeTool = useDrawingStore((state) => state.drawingState.tool)
+    const storeColor = useDrawingStore((state) => state.drawingState.color)
+    const storeStrokeWidth = useDrawingStore(
+      (state) => state.drawingState.strokeWidth
+    )
     const setTool = useDrawingStore((state) => state.setTool)
     const setColor = useDrawingStore((state) => state.setColor)
     const setStrokeWidth = useDrawingStore((state) => state.setStrokeWidth)
-    const setFontSize = useDrawingStore((state) => state.setFontSize)
 
     // Use Zustand fallbacks if no props provided
     const zustandUndo = useDrawingStore((state) => state.undo)
@@ -246,10 +249,9 @@ const DrawingToolbar = memo(
     const zustandResetDrawing = useDrawingStore((state) => state.resetDrawing)
 
     // Handle backwards compatibility - support both old and new interfaces
-    const currentTool = activeTool ?? drawingState.tool
-    const currentColor = color ?? drawingState.color
-    const currentStrokeWidth = strokeWidth ?? drawingState.strokeWidth
-    const currentFontSize = fontSize ?? drawingState.fontSize
+    const currentTool = activeTool ?? storeTool
+    const currentColor = color ?? storeColor
+    const currentStrokeWidth = strokeWidth ?? storeStrokeWidth
 
     const handleToolChange = onToolChange || setTool
     const handleColorChange = onColorChange || setColor
@@ -264,31 +266,13 @@ const DrawingToolbar = memo(
         ? canUndo
         : typeof canUndo === "boolean"
           ? () => canUndo
-          : () => zustandCanUndo
+          : () => zustandCanUndo()
     const handleCanRedo =
       typeof canRedo === "function"
         ? canRedo
         : typeof canRedo === "boolean"
           ? () => canRedo
-          : () => zustandCanRedo
-
-    const handleStrokeWidthChange =
-      onStrokeWidthChange ||
-      ((delta: number) => {
-        const newWidth = clamp(
-          currentStrokeWidth + delta,
-          DRAWING_CONSTANTS.MIN_STROKE_WIDTH,
-          DRAWING_CONSTANTS.MAX_STROKE_WIDTH
-        )
-        setStrokeWidth(newWidth)
-      })
-
-    const handleFontSizeChange =
-      onFontSizeChange ||
-      ((delta: number) => {
-        const newSize = Math.max(8, Math.min(72, currentFontSize + delta))
-        setFontSize(newSize)
-      })
+          : () => zustandCanRedo()
 
     // For old interface compatibility - convert width change to delta
     const handleStrokeWidthDelta = (delta: number) => {
@@ -391,6 +375,44 @@ const DrawingToolbar = memo(
           title="Clear all drawings">
           <TrashIcon size={20} />
         </button>
+
+        {/* Zoom Controls – only rendered when zoom props are provided */}
+        {zoom !== undefined && onZoomIn && onZoomOut && (
+          <>
+            <div className="h-6 w-px bg-gray-200" aria-hidden="true" />
+
+            <div className="flex items-center gap-1">
+              <button
+                onClick={onZoomOut}
+                disabled={zoom <= 0.25}
+                className="flex h-8 w-8 items-center justify-center rounded-md text-gray-600 transition-colors hover:bg-gray-100 disabled:opacity-50 disabled:hover:bg-transparent"
+                title="Zoom out">
+                <MagnifyingGlassMinusIcon size={18} />
+              </button>
+
+              <span className="w-10 select-none text-center text-xs font-medium tabular-nums text-gray-600">
+                {Math.round(zoom * 100)}%
+              </span>
+
+              <button
+                onClick={onZoomIn}
+                disabled={zoom >= 4}
+                className="flex h-8 w-8 items-center justify-center rounded-md text-gray-600 transition-colors hover:bg-gray-100 disabled:opacity-50 disabled:hover:bg-transparent"
+                title="Zoom in">
+                <MagnifyingGlassPlusIcon size={18} />
+              </button>
+
+              {onZoomFit && (
+                <button
+                  onClick={onZoomFit}
+                  className="flex h-8 w-8 items-center justify-center rounded-md text-gray-600 transition-colors hover:bg-gray-100"
+                  title="Fit to view">
+                  <ArrowsInIcon size={18} />
+                </button>
+              )}
+            </div>
+          </>
+        )}
       </div>
     )
   }

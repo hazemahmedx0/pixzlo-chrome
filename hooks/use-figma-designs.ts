@@ -1,4 +1,5 @@
 import { useFigmaDataStore } from "@/stores/figma-data"
+import { usePixzloDialogStore } from "@/stores/pixzlo-dialog"
 import type { FigmaDesignLink } from "@/types/figma"
 import { useCallback, useMemo } from "react"
 
@@ -31,10 +32,13 @@ export function useFigmaDesigns(): UseFigmaDesignsReturn {
     deleteDesignLink
   } = useFigmaDataStore()
 
+  const getPageUrl = usePixzloDialogStore((state) => state.getPageUrl)
+
   const refreshDesigns = useCallback(async (): Promise<void> => {
     // Force-refresh for the current URL so we always pick up newly added designs
-    await refreshMetadata(window.location.href, { force: true })
-  }, [refreshMetadata])
+    // Use getPageUrl() to get the correct URL in tab page context
+    await refreshMetadata(getPageUrl(), { force: true })
+  }, [refreshMetadata, getPageUrl])
 
   const preferredFrameId = metadata.preference?.lastUsedFrameId ?? null
 

@@ -17,6 +17,8 @@ export const PenElement = memo(
       tension={0.5}
       lineCap="round"
       lineJoin="round"
+      perfectDrawEnabled={false}
+      shadowForStrokeEnabled={false}
     />
   )
 )

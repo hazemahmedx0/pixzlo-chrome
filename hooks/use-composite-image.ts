@@ -1,3 +1,4 @@
+import { IMAGE_OUTPUT_MIME, IMAGE_OUTPUT_QUALITY } from "@/lib/image-format"
 import { usePixzloDialogStore } from "@/stores/pixzlo-dialog"
 import { useCallback, useEffect, useRef, useState } from "react"
 
@@ -110,7 +111,7 @@ export const useCompositeImage = (
       ctx.drawImage(img, imageX, imageY, imageWidth, imageHeight)
 
       // Convert to data URL
-      const dataUrl = canvas.toDataURL("image/png")
+      const dataUrl = canvas.toDataURL(IMAGE_OUTPUT_MIME, IMAGE_OUTPUT_QUALITY)
       setCompositeImageUrl(dataUrl)
       lastProcessedImageRef.current = originalImageUrl
     } catch (err) {

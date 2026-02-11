@@ -32,7 +32,7 @@ interface FigmaProperties {
   borderRadius?: number
   padding?: number
   margin?: number
-  [key: string]: any // Allow for additional properties
+  [key: string]: string | number | boolean | undefined
 }
 
 interface FigmaContextData {
@@ -53,6 +53,10 @@ interface PixzloDialogState {
   activeImageIndex: number
   includeFullscreen: boolean
 
+  // Source Page Context (for tab page mode)
+  // This is the URL of the page where the capture was taken
+  sourcePageUrl: string | null
+
   // Form State
   title: string
   description: string
@@ -63,6 +67,7 @@ interface PixzloDialogState {
   extractedCSS: ExtractedCSS | null
   drawingElements: DrawingElement[]
   drawingOverlayDataUrl: string | null
+  drawingOverlayExporter: (() => string | null) | null
   figmaDesign: FigmaDesignData | null
   figmaContext: FigmaContextData | null // Store Figma URL and frame context
   isFigmaPopupOpen: boolean // New state for Figma popup
@@ -85,6 +90,7 @@ interface PixzloDialogState {
   setExtractedCSS: (css: ExtractedCSS | null) => void
   setDrawingElements: (elements: DrawingElement[]) => void
   setDrawingOverlayDataUrl: (dataUrl: string | null) => void
+  setDrawingOverlayExporter: (exporter: (() => string | null) | null) => void
   setFigmaDesign: (design: FigmaDesignData | null) => void
   setFigmaContext: (context: FigmaContextData | null) => void // Store Figma context
   setIsFigmaPopupOpen: (isOpen: boolean) => void // New action
@@ -99,12 +105,22 @@ interface PixzloDialogState {
   toggleSelectAll: () => void
   resetPropertySelection: () => void
 
+  // Source Page Context
+  setSourcePageUrl: (url: string | null) => void
+
   // Complex Actions
-  openDialog: (screenshots: Screenshot[], selectedElement?: HTMLElement) => void
+  openDialog: (
+    screenshots: Screenshot[],
+    selectedElement?: HTMLElement,
+    sourcePageUrl?: string
+  ) => void
   closeDialog: () => void
   resetForm: () => void
   createIssueData: () => IssueData | null
   setCompositeImageUrl: (originalUrl: string, compositeUrl: string) => void
+
+  // Utility to get the current page URL (uses sourcePageUrl if in tab mode, else window.location.href)
+  getPageUrl: () => string
 }
 
 export const usePixzloDialogStore = create<PixzloDialogState>((set, get) => ({
@@ -113,6 +129,7 @@ export const usePixzloDialogStore = create<PixzloDialogState>((set, get) => ({
   activeTab: "styling",
   activeImageIndex: 0,
   includeFullscreen: true,
+  sourcePageUrl: null, // Set when opening from tab page
   title: "",
   description: "",
   screenshots: [],
@@ -120,6 +137,7 @@ export const usePixzloDialogStore = create<PixzloDialogState>((set, get) => ({
   extractedCSS: null,
   drawingElements: [],
   drawingOverlayDataUrl: null,
+  drawingOverlayExporter: null,
   figmaDesign: null,
   figmaContext: null, // Initial state
   isFigmaPopupOpen: false, // Initial state
@@ -132,6 +150,7 @@ export const usePixzloDialogStore = create<PixzloDialogState>((set, get) => ({
 
   // Basic Setters
   setIsOpen: (isOpen: boolean) => set({ isOpen }),
+  setSourcePageUrl: (sourcePageUrl: string | null) => set({ sourcePageUrl }),
   setActiveTab: (activeTab: TabType) => set({ activeTab }),
   setActiveImageIndex: (activeImageIndex: number) => set({ activeImageIndex }),
   setIncludeFullscreen: (includeFullscreen: boolean) =>
@@ -146,6 +165,8 @@ export const usePixzloDialogStore = create<PixzloDialogState>((set, get) => ({
     set({ drawingElements }),
   setDrawingOverlayDataUrl: (drawingOverlayDataUrl: string | null) =>
     set({ drawingOverlayDataUrl }),
+  setDrawingOverlayExporter: (drawingOverlayExporter) =>
+    set({ drawingOverlayExporter }),
   setFigmaDesign: (figmaDesign: FigmaDesignData | null) => set({ figmaDesign }),
   setFigmaContext: (figmaContext: FigmaContextData | null) =>
     set({ figmaContext }),
@@ -217,7 +238,11 @@ export const usePixzloDialogStore = create<PixzloDialogState>((set, get) => ({
   },
 
   // Complex Actions
-  openDialog: (screenshots: Screenshot[], selectedElement?: HTMLElement) => {
+  openDialog: (
+    screenshots: Screenshot[],
+    selectedElement?: HTMLElement,
+    sourcePageUrl?: string
+  ) => {
     const currentScreenshot = screenshots[0]
     const isElementCapture = currentScreenshot?.type === "element"
     const showStylingTab = isElementCapture
@@ -227,7 +252,8 @@ export const usePixzloDialogStore = create<PixzloDialogState>((set, get) => ({
       screenshots,
       selectedElement: selectedElement || null,
       activeTab: showStylingTab ? "styling" : "info",
-      activeImageIndex: 0
+      activeImageIndex: 0,
+      sourcePageUrl: sourcePageUrl || null
     })
 
     // Initialize all properties as selected after a short delay to ensure extractedCSS is set
@@ -254,6 +280,7 @@ export const usePixzloDialogStore = create<PixzloDialogState>((set, get) => ({
       extractedCSS: null,
       drawingElements: [],
       drawingOverlayDataUrl: null,
+      drawingOverlayExporter: null,
       figmaDesign: null,
       figmaContext: null,
       isFigmaPopupOpen: false,
@@ -261,7 +288,8 @@ export const usePixzloDialogStore = create<PixzloDialogState>((set, get) => ({
       figmaDesigns: [],
       figmaDesignsLoading: false,
       localFigmaDesigns: [],
-      selectedProperties: new Set<string>()
+      selectedProperties: new Set<string>(),
+      sourcePageUrl: null
     })
   },
 
@@ -287,5 +315,12 @@ export const usePixzloDialogStore = create<PixzloDialogState>((set, get) => ({
       screenshots: state.screenshots,
       metadata: currentScreenshot.metadata
     }
+  },
+
+  // Utility to get the current page URL
+  // Uses sourcePageUrl if set (tab page mode), otherwise falls back to window.location.href
+  getPageUrl: (): string => {
+    const state = get()
+    return state.sourcePageUrl || window.location.href
   }
 }))

@@ -1,13 +1,12 @@
-import { Toaster } from "@/components/ui/sonner"
 import { CaptureService } from "@/lib/capture-service"
 import { ElementSelectionService } from "@/lib/element-selection-service"
-import { usePixzloDialogStore } from "@/stores/pixzlo-dialog"
-import type { CaptureType, Screenshot } from "@/types/capture"
+import { SessionService } from "@/lib/session-service"
+import type { Screenshot } from "@/types/capture"
+import type { CaptureSessionData } from "@/types/session"
 import { memo, useCallback, useEffect, useRef, useState } from "react"
 
 import ElementHighlighter from "./element-highlighter"
 import FloatingToolbar from "./floating-toolbar"
-import PixzloDialog from "./pixzlo-dialog"
 import SelectionOverlay from "./selection-overlay"
 
 type CaptureMode = "pointer" | "element" | "area" | "fullscreen" | null
@@ -21,11 +20,6 @@ const EnhancedElementSelector = memo(
   ({ initialMode = "element", onReset }: EnhancedElementSelectorProps) => {
     const [isActive, setIsActive] = useState(false)
     const [captureMode, setCaptureMode] = useState<CaptureMode>(null)
-    const [screenshots, setScreenshots] = useState<Screenshot[]>([])
-    const [showDialog, setShowDialog] = useState(false)
-    const [selectedElement, setSelectedElement] = useState<HTMLElement | null>(
-      null
-    )
 
     const hasTriggeredFullscreenCapture = useRef(false)
 
@@ -43,40 +37,53 @@ const EnhancedElementSelector = memo(
     const handleClose = useCallback(() => {
       setIsActive(false)
       setCaptureMode(null)
-      setScreenshots([])
-      setShowDialog(false)
-      setSelectedElement(null)
       hasTriggeredFullscreenCapture.current = false
 
       // Notify parent to reset the mount state
       onReset?.()
     }, [onReset])
 
+    /**
+     * Opens the capture tab page with the given screenshots and element info
+     * Note: Does NOT close the selector UI - user can continue capturing on the same page
+     */
+    const openCaptureTab = useCallback(
+      async (
+        screenshots: Screenshot[],
+        selectedElement?: HTMLElement
+      ): Promise<void> => {
+        try {
+          // Create session data (sourceTabId will be added by background script from sender)
+          const sessionData: Omit<CaptureSessionData, "sourceTabId"> = {
+            sessionId: SessionService.generateSessionId(),
+            screenshots,
+            selectedElementInfo: selectedElement
+              ? SessionService.serializeElement(selectedElement)
+              : undefined,
+            createdAt: Date.now(),
+            sourceUrl: window.location.href
+          }
+
+          // Send message to background script to open the tab
+          // The background script will add the sourceTabId from the sender
+          await chrome.runtime.sendMessage({
+            type: "OPEN_CAPTURE_TAB",
+            data: sessionData
+          })
+
+          // UI stays open - user can continue capturing more elements/areas
+        } catch (error) {
+          console.error("Failed to open capture tab:", error)
+          // Don't close UI on error - user can retry
+        }
+      },
+      []
+    )
+
     const handleElementSelect = useCallback(
       async (element: HTMLElement, rect: DOMRect) => {
-        // Force dialog to open immediately
-        const fallbackScreenshots = [
-          {
-            dataUrl:
-              "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
-            timestamp: Date.now(),
-            type: "element" as const,
-            metadata: {
-              url: window.location.href,
-              device: "Desktop",
-              browser: "Chrome",
-              screenResolution: "1920x1080px",
-              viewportSize: "1200x800px"
-            }
-          }
-        ]
-
-        setScreenshots(fallbackScreenshots)
-        setSelectedElement(element)
-        setShowDialog(true)
-        setIsActive(false)
-
-        // Try capture in background but don't block dialog opening
+        // Stay in element mode - user can continue selecting more elements
+        // Capture the element
         try {
           const screenshots = await elementSelectionService.captureElement(
             element,
@@ -88,12 +95,29 @@ const EnhancedElementSelector = memo(
             rect
           )
 
-          setScreenshots(screenshots)
+          // Open capture tab with screenshots and element info
+          await openCaptureTab(screenshots, element)
         } catch {
-          // Failed to capture element (but dialog already open)
+          // Even if capture fails, try to open with a fallback
+          const fallbackScreenshots: Screenshot[] = [
+            {
+              dataUrl:
+                "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+              timestamp: Date.now(),
+              type: "element" as const,
+              metadata: {
+                url: window.location.href,
+                device: "Desktop",
+                browser: "Chrome",
+                screenResolution: "1920x1080px",
+                viewportSize: "1200x800px"
+              }
+            }
+          ]
+          await openCaptureTab(fallbackScreenshots, element)
         }
       },
-      [elementSelectionService]
+      [elementSelectionService, openCaptureTab]
     )
 
     const handleAreaSelect = useCallback(
@@ -103,6 +127,7 @@ const EnhancedElementSelector = memo(
         width: number
         height: number
       }) => {
+        // Stay in area mode - user can continue selecting more areas
         try {
           const screenshot = await captureService.captureArea(area, {
             type: "area",
@@ -110,13 +135,10 @@ const EnhancedElementSelector = memo(
             preserveOriginalAspect: true
           })
 
-          setScreenshots([screenshot])
-          setShowDialog(true)
-          setIsActive(false)
+          await openCaptureTab([screenshot])
         } catch {
-          // Show dialog with fallback data for debugging
-          setShowDialog(true)
-          setScreenshots([
+          // Even if capture fails, try to open with fallback
+          const fallbackScreenshots: Screenshot[] = [
             {
               dataUrl:
                 "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
@@ -130,14 +152,15 @@ const EnhancedElementSelector = memo(
                 viewportSize: "1200x800px"
               }
             }
-          ])
-          setIsActive(false)
+          ]
+          await openCaptureTab(fallbackScreenshots)
         }
       },
-      [captureService]
+      [captureService, openCaptureTab]
     )
 
     const handleFullScreenCapture = useCallback(async () => {
+      // Stay in fullscreen mode - user can capture again if needed
       try {
         const screenshot = await captureService.captureFullScreen({
           type: "fullscreen",
@@ -145,13 +168,10 @@ const EnhancedElementSelector = memo(
           preserveOriginalAspect: true
         })
 
-        setScreenshots([screenshot])
-        setShowDialog(true)
-        setIsActive(false)
+        await openCaptureTab([screenshot])
       } catch {
-        // Show dialog with fallback data for debugging
-        setShowDialog(true)
-        setScreenshots([
+        // Even if capture fails, try to open with fallback
+        const fallbackScreenshots: Screenshot[] = [
           {
             dataUrl:
               "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
@@ -165,10 +185,10 @@ const EnhancedElementSelector = memo(
               viewportSize: "1200x800px"
             }
           }
-        ])
-        setIsActive(false)
+        ]
+        await openCaptureTab(fallbackScreenshots)
       }
-    }, [captureService])
+    }, [captureService, openCaptureTab])
 
     // Trigger full-screen capture immediately once the mode is active
     useEffect(() => {
@@ -210,49 +230,22 @@ const EnhancedElementSelector = memo(
       [handleFullScreenCapture]
     )
 
-    const handleSubmit = useCallback((issueData: any) => {
-      // Here you would typically send the issue data to your backend
-      // IMPORTANT: Don't automatically close the dialog here!
-      // Let the background submission process handle success/error states
-      // The dialog should only close when the user explicitly closes it
-      // or when there's a successful submission with a copied URL
-    }, [])
-
-    // Handle successful issue creation - close dialog but keep extension active
-    const handleIssueCreated = useCallback(() => {
-      // Reset the store form data and close dialog state
-      const store = usePixzloDialogStore.getState()
-      store.resetForm()
-      store.closeDialog()
-
-      // Close the dialog in local state
-      setShowDialog(false)
-      setScreenshots([])
-      setSelectedElement(null)
-      // Re-enable selection mode so user can select another element
-      setIsActive(true)
-      setCaptureMode(initialMode)
-      hasTriggeredFullscreenCapture.current = false
-    }, [initialMode])
-
-    if (!isActive && !showDialog) {
+    if (!isActive) {
       return null
     }
 
     return (
       <>
         {/* Floating toolbar */}
-        {isActive && (
-          <FloatingToolbar
-            onClose={handleClose}
-            onCapture={handleCapture}
-            onModeChange={handleModeChange}
-            activeMode={captureMode || "element"}
-          />
-        )}
+        <FloatingToolbar
+          onClose={handleClose}
+          onCapture={handleCapture}
+          onModeChange={handleModeChange}
+          activeMode={captureMode || "element"}
+        />
 
         {/* Element highlighter for element selection mode */}
-        {isActive && captureMode === "element" && (
+        {captureMode === "element" && (
           <ElementHighlighter
             isActive={true}
             onElementSelect={handleElementSelect}
@@ -261,49 +254,13 @@ const EnhancedElementSelector = memo(
         )}
 
         {/* Selection overlay for area capture mode */}
-        {isActive && captureMode === "area" && (
+        {captureMode === "area" && (
           <SelectionOverlay
             isActive={true}
             onSelectionComplete={handleAreaSelect}
             onCancel={handleClose}
           />
         )}
-
-        {/* Design QA screenshot dialog */}
-        {showDialog && (
-          <PixzloDialog
-            screenshots={
-              screenshots.length > 0
-                ? screenshots
-                : [
-                    {
-                      dataUrl:
-                        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
-                      timestamp: Date.now(),
-                      type: "element",
-                      metadata: {
-                        url: window.location.href,
-                        device: "Desktop",
-                        browser: "Chrome",
-                        screenResolution: "1920x1080px",
-                        viewportSize: "1200x800px"
-                      }
-                    }
-                  ]
-            }
-            selectedElement={selectedElement}
-            isOpen={showDialog}
-            onClose={() => {
-              setShowDialog(false)
-              handleClose()
-            }}
-            onSubmit={handleSubmit}
-            onIssueCreated={handleIssueCreated}
-          />
-        )}
-
-        {/* Toast notifications */}
-        <Toaster />
       </>
     )
   }

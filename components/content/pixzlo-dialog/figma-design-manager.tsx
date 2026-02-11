@@ -37,8 +37,13 @@ const FigmaDesignManager = memo(
     placeholderAspectRatio = null,
     placeholderMinHeight = null
   }: FigmaDesignManagerProps): JSX.Element => {
-    const { isFigmaPopupOpen, figmaContext, setIsFigmaPopupOpen } =
-      usePixzloDialogStore()
+    const isFigmaPopupOpen = usePixzloDialogStore(
+      (state) => state.isFigmaPopupOpen
+    )
+    const figmaContext = usePixzloDialogStore((state) => state.figmaContext)
+    const setIsFigmaPopupOpen = usePixzloDialogStore(
+      (state) => state.setIsFigmaPopupOpen
+    )
 
     const {
       isAuthenticated,
